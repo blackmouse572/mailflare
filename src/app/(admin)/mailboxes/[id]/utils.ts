@@ -100,3 +100,20 @@ export async function deleteMailbox(id: string): Promise<void> {
 
 	clearMailboxesCache();
 }
+
+export async function createMailboxAccount(
+	id: string,
+	input: { password: string; role: "admin" | "user" },
+): Promise<{ id: string; email: string }> {
+	const res = await authFetch(`/api/mailboxes/${id}/account`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(input),
+	});
+	const json = (await res.json()) as { account?: { id: string; email: string }; error?: unknown };
+	if (!res.ok || !json.account) {
+		throw new Error(typeof json.error === "string" ? json.error : "Unable to create account");
+	}
+	clearMailboxesCache();
+	return json.account;
+}

@@ -3,10 +3,10 @@
   "version": "0.5.4",
   "private": true,
   "scripts": {
-    "dev": "npm run db:bundle && vp dev --port 3000",
-    "build": "npm run db:bundle && vp build",
-    "build:next": "npm run db:bundle && MAILFLARE_RUNTIME=node next build",
-    "start": "vp preview --port 3000",
+    "dev": "node init && npm run db:bundle && vp dev --port 3000",
+    "build": "node init && npm run db:bundle && vp build",
+    "build:next": "node init && npm run db:bundle && MAILFLARE_RUNTIME=node next build",
+    "start": "node init && vp preview --port 3000",
     "lint": "vp lint .",
     "deploy": "npm run build && npm run deploy:worker",
     "deploy:worker": "wrangler deploy",
@@ -24,9 +24,9 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate": "wrangler d1 migrations apply DB",
     "db:seed": "curl -X POST http://localhost:3000/api/seed",
-    "build:node": "npm run db:bundle && MAILFLARE_RUNTIME=node next build && node scripts/build-server.mjs",
-    "start:node": "MAILFLARE_RUNTIME=node NODE_ENV=production node dist/server.mjs",
-    "dev:node": "npm run db:bundle && node scripts/build-server.mjs && MAILFLARE_RUNTIME=node node dist/server.mjs"
+    "build:node": "node init && npm run db:bundle && MAILFLARE_RUNTIME=node next build && node scripts/build-server.mjs",
+    "start:node": "node init && MAILFLARE_RUNTIME=node NODE_ENV=production node dist/server.mjs",
+    "dev:node": "node init && npm run db:bundle && node scripts/build-server.mjs && MAILFLARE_RUNTIME=node node dist/server.mjs"
   },
   "cloudflare": {
     "bindings": {

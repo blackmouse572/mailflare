@@ -36,7 +36,6 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
 !.env.example
 
 # vercel
@@ -63,3 +62,4 @@ mailflare-landing
 .agents
 skills-lock.json
 /dist/
+config.bat
