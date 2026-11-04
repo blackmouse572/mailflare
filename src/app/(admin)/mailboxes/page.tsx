@@ -3,9 +3,9 @@
 import { mobilePrimaryActionClass } from "@/components/page-header-utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Plus, UsersRound } from "lucide-react";
+import { Plus, UsersRound } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,12 +25,13 @@ import { clearMailboxesCache } from "@/components/mailbox-provider-utils";
 import { ProgressiveAvatarImage } from "@/components/progressive-avatar-image";
 import { authFetch } from "@/lib/auth/client";
 import type { CurrentAccountResponse, Domain, MailboxOwner, MailboxesResponse } from "./types";
-import { getMailboxAddress, getMailboxName } from "./utils";
+import { getMailboxAddress, getMailboxesBase, getMailboxName } from "./utils";
 
 export default function MailboxesPage() {
 	const { t } = useLanguage();
 	const qc = useQueryClient();
 	const router = useRouter();
+	const base = getMailboxesBase(usePathname());
 	const [displayName, setDisplayName] = useState("");
 	const [localPart, setLocalPart] = useState("");
 	const [domainId, setDomainId] = useState("");
@@ -103,7 +104,7 @@ export default function MailboxesPage() {
 			clearMailboxesCache();
 			setCreateOpen(false);
 			qc.invalidateQueries({ queryKey: ["mailboxes"] });
-			if (mailboxType === "shared" && mailboxId) router.push(`/mailboxes/${mailboxId}`);
+			if (mailboxType === "shared" && mailboxId) router.push(`${base}/${mailboxId}`);
 			setMailboxType("personal");
 		},
 	});
@@ -196,7 +197,7 @@ export default function MailboxesPage() {
 										placeholder={t("mailboxes.localPlaceholder")}
 										className="min-w-0 flex-1 rounded-none border-0 shadow-none focus-visible:border-0"
 									/>
-									<span className="flex items-center text-sm text-neutral-400">@</span>
+									<span className="flex items-center text-sm text-neutral-500">@</span>
 									<Select
 										aria-label={t("accounts.domain")}
 										className="min-w-0 max-w-[55%] bg-transparent px-3 text-sm text-neutral-700 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
@@ -213,7 +214,7 @@ export default function MailboxesPage() {
 								</div>
 							</div>
 							{create.isError && (
-								<p className="text-sm text-red-600">{(create.error as Error).message}</p>
+								<p role="alert" className="text-sm text-red-600">{(create.error as Error).message}</p>
 							)}
 							<Button
 								onClick={() => create.mutate()}
@@ -249,7 +250,7 @@ export default function MailboxesPage() {
 						return (
 							<ListRow key={mailbox.id} asChild>
 								<Link
-									href={`/mailboxes/${mailbox.id}`}
+									href={`${base}/${mailbox.id}`}
 									className="group px-5 py-4 transition-colors hover:bg-blue-50/40"
 								>
 									<span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-100 text-sm font-semibold text-blue-700">

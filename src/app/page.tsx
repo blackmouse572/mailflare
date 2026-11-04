@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { heroMessages, sidebarItems } from "./utils";
-import { Inbox, Mail, Search, ShieldCheck } from "lucide-react";
+import { Inbox, Mail, Search, ShieldCheck } from "@/components/icons";
 import { getServerTranslator } from "@/lib/i18n/server";
 import { LanguageSelector } from "@/components/language-selector";
 import { getHomeBranding } from "./home-server-utils";
@@ -33,7 +33,7 @@ export default async function HomePage() {
           aria-label={t("home.homeLabel", { app: branding.appName })}
         >
           <img src={branding.hasCustomIcon ? "/api/branding/icon" : "/icon-96.png"} height={32} width={32} alt="" />
-          <span className="text-base font-semibold tracking-tight">
+          <span className="hidden text-base font-semibold tracking-tight sm:inline">
             {branding.appName}
           </span>
         </Link>

@@ -7,4 +7,4 @@ export const API_KEY_SCOPES = ["send", "read", "jmap", "calendar:read", "calenda
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
-export const ADMIN_API_KEY_SCOPES = ["domains", "accounts", "mailboxes"] as const;
+export const ADMIN_API_KEY_SCOPES = ["domains", "accounts", "mailboxes", "storage"] as const;

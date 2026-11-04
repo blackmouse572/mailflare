@@ -4,9 +4,12 @@ import { AuthGuard } from "@/components/auth/auth-guard";
 import { hasAdminAccount } from "@/lib/auth/setup";
 import { getUserFromSession, SESSION_COOKIE } from "@/lib/auth/session";
 import { getEnv } from "@/lib/cloudflare";
+import { authPageMetadata } from "../auth-metadata";
 import { LoginClient } from "./login-client";
 
 export const dynamic = "force-dynamic";
+
+export const generateMetadata = () => authPageMetadata("auth.signIn");
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ add?: string }> }) {
 	const adding = (await searchParams).add === "1";

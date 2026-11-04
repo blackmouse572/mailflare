@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Camera, LoaderCircle } from "lucide-react";
+import { Camera, LoaderCircle } from "@/components/icons";
 import { dispatchContactAvatarChanged } from "@/lib/contacts/avatar-client";
 import { normalizeEmailAddress } from "@/lib/email/address";
 import { Input } from "@/components/ui/input";
@@ -96,7 +96,7 @@ export function ContactAvatarForm({
 					)}
 				</div>
 			</div>
-			{status && <p className="text-xs text-red-600">{status}</p>}
+			{status && <p role="alert" className="text-xs text-red-600">{status}</p>}
 		</div>
 	);
 }

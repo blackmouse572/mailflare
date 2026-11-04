@@ -18,6 +18,7 @@ export type SessionUser = {
 	spamProtectionEnabled: boolean;
 	trashRetentionDays: number | null;
 	showFullRecipientAddresses: boolean;
+	remoteContentMode: "ask" | "new_sender" | "allow";
 	createdByUserId: string | null;
 	createdAt: Date;
 };

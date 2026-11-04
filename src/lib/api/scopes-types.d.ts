@@ -1,1 +1,1 @@
-export type AdminApiKeyScope = "domains" | "accounts" | "mailboxes";
+export type AdminApiKeyScope = "domains" | "accounts" | "mailboxes" | "storage";

@@ -3,7 +3,7 @@ import { and, eq, or } from "drizzle-orm";
 import { getEnv } from "@/lib/cloudflare";
 import { getDb } from "@/db";
 import { domains, mailboxAliases, mailboxes, users } from "@/db/schema";
-import { authenticateAdminApiKey, canManageAdminAccounts } from "@/lib/api/admin-auth";
+import { authenticateAdminApiKey, canShareAdminMailboxes } from "@/lib/api/admin-auth";
 import { newId } from "@/lib/ids";
 import { mailboxSchema } from "@/lib/validators";
 import { ensureMailboxDomainRouting } from "@/lib/mailboxes/domain-addresses";
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 	if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 	const db = getDb(env);
 	const mailboxType = parsed.data.type ?? "personal";
-	if (mailboxType === "shared" && !(await canManageAdminAccounts(env))) return NextResponse.json({ error: "A Team license is required to create shared inboxes" }, { status: 403 });
+	if (mailboxType === "shared" && !(await canShareAdminMailboxes(env))) return NextResponse.json({ error: "A Team license is required to create shared inboxes" }, { status: 403 });
 	const ownerUserId = mailboxType === "shared" ? auth.userId : parsed.data.ownerUserId ?? auth.userId;
 	if (ownerUserId !== auth.userId) {
 		const [owner] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, ownerUserId), eq(users.createdByUserId, auth.userId))).limit(1);

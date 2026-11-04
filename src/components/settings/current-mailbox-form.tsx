@@ -2,7 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
+import { Save } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { useSelectedMailbox } from "@/components/mailbox-provider";
 import { Button } from "@/components/ui/button";
@@ -108,7 +108,7 @@ export function CurrentMailboxForm() {
 								<Save className="h-4 w-4" />
 								{saving ? t("common.saving") : t("settings.mailbox.saveChanges")}
 							</Button>
-							{status && <p className="text-sm text-neutral-500">{status}</p>}
+							{status && <p role="status" className="text-sm text-neutral-500">{status}</p>}
 						</div>
 					</form>
 				</CardContent>

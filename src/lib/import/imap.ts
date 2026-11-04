@@ -3,7 +3,9 @@ import type { ImapImportInput } from "./imap-types";
 import {
 	assertSafeImapHost,
 	getLiteralLength,
+	planImapFetchGroups,
 	isTaggedCompletion,
+	parseFetchFlags,
 	parseListMailboxName,
 	parseSearchUids,
 	quoteImapString,
@@ -34,7 +36,12 @@ class ImapConnection {
 	private writer: WritableStreamDefaultWriter<Uint8Array>;
 	private decoder = new TextDecoder();
 	private encoder = new TextEncoder();
-	private buffer = new Uint8Array();
+	// Unread bytes live in buffer[start, end). Capacity grows by doubling so large
+	// literals are not recopied on every socket chunk.
+	private buffer = new Uint8Array(64 * 1024);
+	private start = 0;
+	private end = 0;
+	private scanned = 0;
 	private tagCounter = 0;
 
 	constructor(socket: Socket) {
@@ -71,13 +78,40 @@ class ImapConnection {
 		}
 	}
 
-	async fetchMessage(uid: string): Promise<ArrayBuffer> {
-		const tag = this.nextTag();
-		await this.write(`${tag} UID FETCH ${uid} (RFC822)\r\n`);
+	/** Sizes in bytes by UID, so a batch can be planned against the memory budget before any body is read. */
+	async fetchSizes(uids: string[]): Promise<Map<string, number>> {
+		const sizes = new Map<string, number>();
+		if (!uids.length) return sizes;
+		for (const line of await this.command(`UID FETCH ${uids.join(",")} (RFC822.SIZE)`)) {
+			const uid = line.match(/\bUID (\d+)/i)?.[1];
+			const size = line.match(/\bRFC822\.SIZE (\d+)/i)?.[1];
+			if (uid && size) sizes.set(uid, Number(size));
+		}
+		return sizes;
+	}
+
+	/**
+	 * Sends every FETCH before reading any reply, so a group costs one round trip
+	 * instead of one per message. Replies come back in command order.
+	 */
+	async fetchMessages(uids: string[]): Promise<{ uid: string; raw: ArrayBuffer; flags: string[] }[]> {
+		const tags = uids.map(() => this.nextTag());
+		// BODY.PEEK[] leaves the source's \Seen flag untouched, unlike RFC822.
+		await this.write(uids.map((uid, index) => `${tags[index]} UID FETCH ${uid} (FLAGS BODY.PEEK[])\r\n`).join(""));
+		const fetched: { uid: string; raw: ArrayBuffer; flags: string[] }[] = [];
+		for (const [index, uid] of uids.entries()) {
+			fetched.push({ uid, ...(await this.readFetchReply(tags[index])) });
+		}
+		return fetched;
+	}
+
+	private async readFetchReply(tag: string): Promise<{ raw: ArrayBuffer; flags: string[] }> {
 		let raw: ArrayBuffer | null = null;
+		let flags: string[] = [];
 
 		while (true) {
 			const line = await this.readLine();
+			flags = parseFetchFlags(line) ?? flags;
 			const literalLength = getLiteralLength(line);
 			if (literalLength !== null) {
 				raw = await this.readBytes(literalLength);
@@ -88,7 +122,7 @@ class ImapConnection {
 					throw new Error(`IMAP fetch failed: ${line}`);
 				}
 				if (!raw) throw new Error("IMAP fetch returned no message");
-				return raw;
+				return { raw, flags };
 			}
 		}
 	}
@@ -104,37 +138,56 @@ class ImapConnection {
 
 	private async readLine(): Promise<string> {
 		while (true) {
-			const index = findCrlf(this.buffer);
+			const index = findCrlf(this.buffer, Math.max(this.start, this.scanned), this.end);
 			if (index >= 0) {
-				const lineBytes = this.buffer.slice(0, index);
-				this.buffer = this.buffer.slice(index + 2);
-				return this.decoder.decode(lineBytes);
+				const line = this.decoder.decode(this.buffer.subarray(this.start, index));
+				this.start = index + 2;
+				this.scanned = this.start;
+				return line;
 			}
+			this.scanned = Math.max(this.start, this.end - 1);
 			await this.readMore();
 		}
 	}
 
 	private async readBytes(length: number): Promise<ArrayBuffer> {
-		while (this.buffer.byteLength < length) {
+		while (this.end - this.start < length) {
 			await this.readMore();
 		}
-		const bytes = this.buffer.slice(0, length);
-		this.buffer = this.buffer.slice(length);
-		return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+		const bytes = this.buffer.slice(this.start, this.start + length);
+		this.start += length;
+		this.scanned = this.start;
+		return bytes.buffer;
 	}
 
 	private async readMore(): Promise<void> {
 		const { value, done } = await this.reader.read();
 		if (done || !value) throw new Error("IMAP connection closed unexpectedly");
-		const next = new Uint8Array(this.buffer.byteLength + value.byteLength);
-		next.set(this.buffer);
-		next.set(value, this.buffer.byteLength);
-		this.buffer = next;
+		this.ensureCapacity(value.byteLength);
+		this.buffer.set(value, this.end);
+		this.end += value.byteLength;
+	}
+
+	private ensureCapacity(extra: number): void {
+		const unread = this.end - this.start;
+		if (this.end + extra <= this.buffer.byteLength) return;
+		let capacity = this.buffer.byteLength;
+		while (unread + extra > capacity) capacity *= 2;
+		if (capacity === this.buffer.byteLength) {
+			this.buffer.copyWithin(0, this.start, this.end);
+		} else {
+			const next = new Uint8Array(capacity);
+			next.set(this.buffer.subarray(this.start, this.end));
+			this.buffer = next;
+		}
+		this.scanned = Math.max(0, this.scanned - this.start);
+		this.start = 0;
+		this.end = unread;
 	}
 }
 
-function findCrlf(buffer: Uint8Array): number {
-	for (let index = 0; index < buffer.byteLength - 1; index += 1) {
+function findCrlf(buffer: Uint8Array, from: number, to: number): number {
+	for (let index = from; index < to - 1; index += 1) {
 		if (buffer[index] === 13 && buffer[index + 1] === 10) return index;
 	}
 	return -1;
@@ -159,19 +212,29 @@ export async function fetchImapMessages(input: ImapImportInput): Promise<ImapFet
 	try {
 		await imap.readGreeting();
 		await imap.command(`LOGIN ${quoteImapString(input.username)} ${quoteImapString(input.password)}`);
-		await imap.command(`SELECT ${quoteImapString(input.folder)}`);
+		await imap.command(`EXAMINE ${quoteImapString(input.folder)}`);
 		const searchLines = await imap.command("UID SEARCH ALL");
 		const batch = selectImapUidBatch(searchLines.flatMap(parseSearchUids), input.limit, input.offset);
-		const uids = batch.uids;
 		const messages: ImportMessageInput[] = [];
-		for (const uid of uids) {
-			messages.push({
-				filename: `${input.folder}-${uid}.eml`,
-				raw: await imap.fetchMessage(uid),
-			});
+		const newestFirst = [...batch.uids].reverse();
+		const sizes = await imap.fetchSizes(newestFirst);
+		for (const group of planImapFetchGroups(newestFirst, sizes)) {
+			for (const { uid, raw, flags } of await imap.fetchMessages(group)) {
+				messages.push({
+					filename: `${input.folder}-${uid}.eml`,
+					raw,
+					read: flags.includes("\\SEEN"),
+					starred: flags.includes("\\FLAGGED"),
+				});
+			}
 		}
 		await imap.command("LOGOUT").catch(() => undefined);
-		return { messages, total: batch.total, nextOffset: batch.nextOffset };
+		const complete = messages.length === batch.uids.length;
+		return {
+			messages: messages.reverse(),
+			total: batch.total,
+			nextOffset: complete ? batch.nextOffset : Math.min(input.offset, batch.total) + messages.length,
+		};
 	} finally {
 		await imap.close();
 	}

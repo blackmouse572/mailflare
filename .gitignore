@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/deploy/cloudflare-email-relay/node_modules
 /.pnp
 .pnp.*
 .yarn/*

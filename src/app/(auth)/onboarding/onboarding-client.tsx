@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, LoaderCircle, MailPlus } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, LoaderCircle, MailPlus } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ export function OnboardingClient() {
 	const [domainCheck, setDomainCheck] = useState<DomainPreflight | null>(null);
 	const [domainChecking, setDomainChecking] = useState(false);
 	const [enableSending, setEnableSending] = useState(false);
+	const [skipDns, setSkipDns] = useState(false);
 	const [domainId, setDomainId] = useState("");
 	const [localPart, setLocalPart] = useState("me");
 	const [error, setError] = useState<string | null>(null);
@@ -45,7 +46,9 @@ export function OnboardingClient() {
 		const normalized = hostname.toLowerCase().trim();
 		let checkedDomain = domainCheck;
 		let sendingRequested = enableSending;
-		if (checkedDomain?.hostname !== normalized) {
+		if (skipDns) {
+			checkedDomain = { hostname: normalized, zone: { id: "manual", name: normalized } };
+		} else if (checkedDomain?.hostname !== normalized) {
 			const result = await checkDomain(normalized);
 			if (!result.ok || !result.domain) {
 				setLoading(false);
@@ -63,7 +66,7 @@ export function OnboardingClient() {
 			return;
 		}
 
-		const { ok, data } = await createDomain(checkedDomain.hostname, sendingRequested, replaceMxRecords);
+		const { ok, data } = await createDomain(checkedDomain.hostname, skipDns ? true : sendingRequested, replaceMxRecords, skipDns);
 		setLoading(false);
 		if (!ok || !data.domain) {
 			if (data.code === "MX_RECORDS_CONFLICT") {
@@ -81,7 +84,7 @@ export function OnboardingClient() {
 
 	async function inspectDomain() {
 		const normalized = hostname.toLowerCase().trim();
-		if (normalized.length < 3 || domainCheck?.hostname === normalized) return;
+		if (skipDns || normalized.length < 3 || domainCheck?.hostname === normalized) return;
 
 		setDomainChecking(true);
 		setError(null);
@@ -157,6 +160,24 @@ export function OnboardingClient() {
 						</div>
 						<div className="flex items-center justify-between gap-4 rounded-2xl bg-neutral-50 px-4 py-3">
 							<div>
+								<Label htmlFor="onboarding-skip-dns">{t("setup.skipDns")}</Label>
+								<p className="mt-1 text-xs leading-5 text-neutral-500">
+									{skipDns ? t("setup.skipDnsOn") : t("setup.skipDnsHint")}
+								</p>
+							</div>
+							<Switch
+								id="onboarding-skip-dns"
+								checked={skipDns}
+								onCheckedChange={(checked) => {
+									setSkipDns(checked);
+									setMxConflict(false);
+									setError(null);
+								}}
+							/>
+						</div>
+						{!skipDns && (
+						<div className="flex items-center justify-between gap-4 rounded-2xl bg-neutral-50 px-4 py-3">
+							<div>
 								<Label htmlFor="onboarding-enable-sending">{t("setup.enableSending")}</Label>
 								<p className="mt-1 text-xs leading-5 text-neutral-500">
 									{domainChecking
@@ -175,11 +196,12 @@ export function OnboardingClient() {
 									id="onboarding-enable-sending"
 									checked={enableSending}
 									onCheckedChange={setEnableSending}
-									disabled={!domainCheck}
+									disabled={!domainCheck || skipDns}
 								/>
 							)}
 						</div>
-						{domainCheck && (
+						)}
+						{domainCheck && !skipDns && (
 							<div className="flex items-center gap-3 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
 								<CheckCircle2 className="h-4 w-4" />
 								{t("setup.domainFound", { zone: domainCheck.zone.name })}
@@ -237,7 +259,7 @@ export function OnboardingClient() {
 					</>
 				)}
 				{error && (
-					<p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+					<p role="alert" className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
 						{error}
 					</p>
 				)}

@@ -55,6 +55,8 @@ export async function POST(request: Request) {
 	const userId = newId("usr");
 	await db.insert(users).values({
 		id: userId,
+		// Opening a message must not tell the sender; the column default predates this and stays "allow".
+		remoteContentMode: "ask",
 		email,
 		resetEmail: firstRunParsed.data.resetEmail,
 		passwordHash: hashPassword(password),
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
 			enableRouting: true,
 			enableSending: firstRunParsed.data.enableSending ?? true,
 			replaceMxRecords: firstRunParsed.data.replaceMxRecords,
+			skipDns: firstRunParsed.data.skipDns,
 		});
 		const domain = added.domain;
 		changes = added.changes;

@@ -5,6 +5,7 @@ import { ROW_GRID, StatusBadge, StatusRow } from "./status-row";
 import CloudflareReceivingConfig from "./CloudflareReceivingConfig";
 import ReceivingSetupSection from "./ReceivingSetupSection";
 import SendingSetupSection from "./SendingSetupSection";
+import TrackingHostSection from "./TrackingHostSection";
 import type { DnsAuthRecord, DomainDnsDetailsProps } from "./types";
 
 export default function DomainDnsDetails({
@@ -23,7 +24,7 @@ export default function DomainDnsDetails({
 }: DomainDnsDetailsProps) {
 	const { t } = useLanguage();
 	const audit = dns.audit;
-	const manual = domain.zoneId === "manual";
+	const manual = domain.zoneId === "manual" && !domain.dnsSkipped;
 	const subdomain = dns.sendingSubdomain;
 	const sendingOk = subdomain ? dns.sendingEnabled : manual && domain.sendingEnabled;
 	const sendingLabel = subdomain
@@ -96,7 +97,7 @@ export default function DomainDnsDetails({
 							{t("domains.manualDnsNote")}
 						</p>
 					)}
-					{setupMessage && <p className="text-xs text-red-600">{setupMessage}</p>}
+					{setupMessage && <p role="alert" className="text-xs text-red-600">{setupMessage}</p>}
 				</section>
 			)}
 			<ReceivingSetupSection
@@ -115,6 +116,7 @@ export default function DomainDnsDetails({
 				cloudflareConfig={cloudflareConfig}
 				cloudflareOk={!!sendingOk && audit?.dkim.status === "ok"}
 			/>
+			{domain.sendingProvider !== "none" && <TrackingHostSection domain={domain} />}
 		</div>
 	);
 }

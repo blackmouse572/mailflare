@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { messages } from "@/db/schema";
+import { agentDraftMetadata, messages } from "@/db/schema";
 import { sendEmail } from "@/lib/email/send";
 import { loadMessageAttachmentContents } from "@/lib/email/attachments";
 import { deleteMessageWithObjects } from "@/lib/email/message-cleanup";
@@ -12,9 +12,10 @@ import type { JmapContext, JmapMethodHandler } from "./types";
 /** One Identity per address the account may send from. */
 export async function buildIdentities(ctx: JmapContext) {
 	const list: Array<Record<string, unknown>> = [];
-	for (const mailbox of await listJmapMailboxes(ctx)) {
-		if (mailbox.permission === "read_only") continue;
-		for (const address of await listSendableAddresses(ctx, mailbox)) {
+	const sendable = (await listJmapMailboxes(ctx)).filter((mailbox) => mailbox.permission !== "read_only");
+	const addresses = await Promise.all(sendable.map((mailbox) => listSendableAddresses(ctx, mailbox)));
+	for (const [index, mailbox] of sendable.entries()) {
+		for (const address of addresses[index]) {
 			list.push({
 				id: identityId(mailbox.id, address),
 				name: mailbox.displayName ?? "",
@@ -74,6 +75,12 @@ export const emailSubmissionSet: JmapMethodHandler = async (ctx, args) => {
 		const [draft] = await ctx.db.select().from(messages).where(and(eq(messages.id, emailId), eq(messages.status, "draft"))).limit(1);
 		if (!draft || draft.userId !== ctx.auth.userId || draft.mailboxId !== identity.mailboxId) {
 			notCreated[creationId] = { type: "invalidProperties", properties: ["emailId"], description: "Not a draft of this account" };
+			continue;
+		}
+		// AI drafts must pass the human review step that /api/send enforces.
+		const [agentDraft] = await ctx.db.select({ draftId: agentDraftMetadata.draftId }).from(agentDraftMetadata).where(eq(agentDraftMetadata.draftId, draft.id)).limit(1);
+		if (agentDraft) {
+			notCreated[creationId] = { type: "forbidden", description: "Review and confirm this AI draft in Mailflare before sending" };
 			continue;
 		}
 		try {

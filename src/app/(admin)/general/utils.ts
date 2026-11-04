@@ -3,18 +3,18 @@ import type { GeneralSettings } from "./types";
 
 export async function loadGeneralSettings(): Promise<GeneralSettings> {
 	const response = await authFetch("/api/admin/general", { cache: "no-store" });
-	const data = await response.json();
+	const data = (await response.json()) as GeneralSettings & { error?: string };
 	if (!response.ok) throw new Error(data.error ?? "Could not load general settings");
 	return data as GeneralSettings;
 }
 
-export async function saveGeneralSettings(outboundAttachmentMaxMb: number): Promise<GeneralSettings> {
+export async function saveGeneralSettings(changes: Partial<GeneralSettings>): Promise<GeneralSettings> {
 	const response = await authFetch("/api/admin/general", {
 		method: "PUT",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ outboundAttachmentMaxMb }),
+		body: JSON.stringify(changes),
 	});
-	const data = await response.json();
+	const data = (await response.json()) as GeneralSettings & { error?: string };
 	if (!response.ok) throw new Error(data.error ?? "Could not save general settings");
 	return data as GeneralSettings;
 }

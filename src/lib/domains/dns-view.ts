@@ -11,7 +11,7 @@ export async function getDomainDnsView(
 	domain: DomainRow,
 ): Promise<DomainDnsViewWithAudit> {
 	const dns = await getDomainDns(env, domain);
-	const audit = await auditDomainDns(domain.hostname, dns);
+	const audit = await auditDomainDns(domain.hostname, dns, domain.sendingProvider);
 	return { ...dns, audit };
 }
 
@@ -21,7 +21,7 @@ export async function summariseDomainDns(
 	domain: DomainRow,
 ): Promise<{ summary: DnsStatusSummary; sendingEnabled: boolean }> {
 	const view = await getDomainDns(env, domain);
-	const audit = await auditDomainDns(domain.hostname, view);
+	const audit = await auditDomainDns(domain.hostname, view, domain.sendingProvider);
 	return {
 		summary: summariseDns(
 			view.routing.records,

@@ -85,7 +85,7 @@ export function PushNotificationSettings() {
 					aria-label="Enable browser push notifications"
 				/>
 			</label>
-			{state.error && <p className="mt-2 px-4 text-sm text-red-600">{state.error}</p>}
+			{state.error && <p role="alert" className="mt-2 px-4 text-sm text-red-600">{state.error}</p>}
 		</div>
 	);
 }

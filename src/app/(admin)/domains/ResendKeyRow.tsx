@@ -55,7 +55,7 @@ export default function ResendKeyRow({ configured, onChanged, onError }: Props) 
 			>
 				{showForm ? (
 					<form className="flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-						<Input type="password" autoComplete="off" placeholder="re_..." value={apiKey} onChange={(event) => setApiKey(event.target.value)} className="max-w-xs bg-white" />
+						<Input type="password" autoComplete="off" aria-label={t("resend.key")} placeholder="re_..." value={apiKey} onChange={(event) => setApiKey(event.target.value)} className="max-w-xs bg-white" />
 						<Button type="submit" size="sm" disabled={!apiKey.trim() || busy}>{busy ? t("domains.checking") : t("resend.saveKey")}</Button>
 						{editing && <Button type="button" size="sm" variant="outline" className="bg-white" onClick={() => { setEditing(false); setApiKey(""); }}>{t("common.cancel")}</Button>}
 					</form>

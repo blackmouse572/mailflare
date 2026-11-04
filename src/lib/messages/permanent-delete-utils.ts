@@ -25,3 +25,18 @@ export function getEmptyFolderConfirmText(folder: PermanentDeleteFolder, total?:
 	if (total === 1) return t("empty.confirm.single", vars);
 	return total && total > 1 ? t("empty.confirm.multiple", vars) : t("empty.confirm.all", vars);
 }
+
+/** Some of the requested messages were not in Trash or Spam any more, so the server kept them. */
+export class PartialDeleteError extends Error {
+	constructor(readonly skipped: number) {
+		super("Some messages could not be deleted");
+	}
+}
+
+export async function throwIfDeleteSkipped(response: Response, action: string): Promise<void> {
+	if (action !== "delete") return;
+	const result = (await response.json().catch(() => null)) as { skipped?: number } | null;
+	if (!result?.skipped) return;
+	window.dispatchEvent(new Event("mailflare:messages-changed"));
+	throw new PartialDeleteError(result.skipped);
+}

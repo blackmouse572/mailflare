@@ -15,7 +15,7 @@ export async function GET(request: Request, { params }: AdminAccountRouteParams)
 	const env = getEnv();
 	const auth = await authenticateAdminApiKey(env, request, "accounts");
 	if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-	if (!(await canManageAdminAccounts(env))) return NextResponse.json({ error: "A Team license is required to manage accounts" }, { status: 403 });
+	if (!(await canManageAdminAccounts(env))) return NextResponse.json({ error: "A Pro or Team license is required to manage accounts" }, { status: 403 });
 	const { id } = await params;
 	const account = await selectAccountById(getDb(env), id);
 	if (!account || (account.id !== auth.userId && account.createdByUserId !== auth.userId)) return NextResponse.json({ error: "Account not found" }, { status: 404 });
@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: AdminAccountRouteParam
 	const env = getEnv();
 	const auth = await authenticateAdminApiKey(env, request, "accounts");
 	if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-	if (!(await canManageAdminAccounts(env))) return NextResponse.json({ error: "A Team license is required to manage accounts" }, { status: 403 });
+	if (!(await canManageAdminAccounts(env))) return NextResponse.json({ error: "A Pro or Team license is required to manage accounts" }, { status: 403 });
 	const { id } = await params;
 	const db = getDb(env);
 	const account = await selectAccountById(db, id);

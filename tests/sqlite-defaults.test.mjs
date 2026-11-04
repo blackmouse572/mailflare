@@ -38,12 +38,32 @@ test("node sqlite keeps stock durability and cache defaults", () => {
 test("upstream sqlite setup does not mention a private mailbox size or host cache knobs", () => {
 	const source = readFileSync(join(root, "server/runtime/sqlite-database.ts"), "utf8");
 	assert.equal(source.includes("13GB"), false);
-	assert.equal(source.includes("mmap_size"), false);
-	assert.equal(source.includes("cache_size"), false);
-	assert.equal(source.includes("synchronous = NORMAL"), false);
 	const route = readFileSync(join(root, "src/app/api/messages/route.ts"), "utf8");
 	assert.equal(route.includes("13GB"), false);
 	assert.equal(route.includes("maxScan"), false);
+});
+
+test("sqlite pragma tuning is opt-in via env", () => {
+	process.env.SQLITE_MMAP_BYTES = "268435456";
+	process.env.SQLITE_CACHE_KB = "131072";
+	process.env.SQLITE_SYNCHRONOUS = "NORMAL";
+	process.env.SQLITE_TEMP_STORE = "memory";
+	try {
+		const database = new SqliteDatabase(join(outDir, "tuned.sqlite"));
+		try {
+			assert.equal(database.db.pragma("mmap_size", { simple: true }), 268435456);
+			assert.equal(database.db.pragma("cache_size", { simple: true }), -131072);
+			assert.equal(database.db.pragma("synchronous", { simple: true }), 1);
+			assert.equal(database.db.pragma("temp_store", { simple: true }), 2);
+		} finally {
+			database.db.close();
+		}
+	} finally {
+		delete process.env.SQLITE_MMAP_BYTES;
+		delete process.env.SQLITE_CACHE_KB;
+		delete process.env.SQLITE_SYNCHRONOUS;
+		delete process.env.SQLITE_TEMP_STORE;
+	}
 });
 
 test("cached reads switch between raw arrays and named row objects", async () => {

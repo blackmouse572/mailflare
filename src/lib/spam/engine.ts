@@ -1,8 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AppDatabase } from "@/db";
-import { contacts, spamReputation } from "@/db/schema";
+import { contacts, domains, spamReputation } from "@/db/schema";
+import { charIndex } from "@/db/sql";
 import { getEmailAddress } from "@/lib/email/address";
 import { analyzeAuthentication } from "./analyzers/authentication";
+import { analyzeImpersonation } from "./analyzers/impersonation";
+import { extractSenderIp } from "./domain-utils";
 import { getReputationKeys } from "./analyzers/reputation";
 import { analyzeStructure } from "./analyzers/structure";
 import { analyzeUrls } from "./analyzers/urls";
@@ -12,28 +15,54 @@ import type { SpamAnalysisInput, SpamAnalysisResult, SpamSignal } from "./types"
 import { SPAM_THRESHOLDS, SPAM_WEIGHTS } from "./weights";
 import { LocalSpamIntelligenceProvider } from "./providers/local";
 
+const MAX_KNOWN_DOMAINS = 2000;
+
+/** Domains a lookalike sender would imitate: ones the user wrote to or saved, and the instance's own. */
+async function listKnownDomains(db: AppDatabase, userId: string): Promise<string[]> {
+	const contactDomain = sql<string>`lower(substr(${contacts.email}, ${charIndex(contacts.email, "@")} + 1))`;
+	const [contactRows, ownRows] = await Promise.all([
+		db.selectDistinct({ domain: contactDomain }).from(contacts)
+			.where(and(eq(contacts.userId, userId), inArray(contacts.source, ["outbound", "manual"])))
+			.limit(MAX_KNOWN_DOMAINS),
+		db.select({ domain: domains.hostname }).from(domains),
+	]);
+	return [...contactRows, ...ownRows].map((row) => row.domain).filter(Boolean);
+}
+
 export async function analyzeSpam(db: AppDatabase, input: SpamAnalysisInput): Promise<SpamAnalysisResult> {
 	const prepared = prepareSpamContent(input.message);
 	const fingerprint = buildFingerprint(input.message, prepared);
 	const sender = getEmailAddress(input.message.fromAddr ?? input.envelopeFrom).toLowerCase();
 	const signals: SpamSignal[] = [
-		...analyzeAuthentication(input.headers),
+		...analyzeAuthentication(input.headers, input.verdicts),
 		...analyzeUrls(input.message, prepared),
 		...analyzeStructure(input.message, input.headers, prepared),
+		...analyzeImpersonation(input.message.fromAddr ?? input.envelopeFrom, await listKnownDomains(db, input.userId), input.brands),
 	];
 	const intelligenceProvider = input.intelligenceProvider ?? new LocalSpamIntelligenceProvider();
 	signals.push(...await intelligenceProvider.check({
 		senderDomain: getDomain(sender),
 		urlDomains: prepared.urlDomains,
 		fingerprint,
-	}));
+		senderIp: input.senderIp ?? extractSenderIp(input.headers),
+	}).catch(() => []));
+
+	// Relationship trust must not offset a failed authentication: a spoofed known contact is the attack.
+	const failed = new Set(signals.map((signal) => signal.id));
+	const authPolicyReason = failed.has("dmarc_failed")
+		? "DMARC authentication failed"
+		: failed.has("spf_failed") && failed.has("dkim_failed")
+			? "Both SPF and DKIM authentication failed"
+			: failed.has("provider_spam_verdict")
+				? "The receiving mail provider classified this message as spam"
+				: null;
 
 	const [contact] = sender ? await db.select().from(contacts).where(and(eq(contacts.userId, input.userId), eq(contacts.email, sender))).limit(1) : [];
 	if (contact?.blocked) {
 		return { score: 100, verdict: "spam", signals: [{ id: "blocked_sender", score: 100, reason: "Sender is blocked" }], fingerprint };
 	}
-	if (contact?.source === "manual") signals.push({ id: "manual_contact", score: SPAM_WEIGHTS.relationships.manuallySavedContact, reason: "Sender is in your manually saved contacts" });
-	if (contact?.source === "outbound") signals.push({ id: "previously_sent", score: SPAM_WEIGHTS.relationships.previouslySentTo, reason: "You have previously sent email to this address" });
+	if (!authPolicyReason && contact?.source === "manual") signals.push({ id: "manual_contact", score: SPAM_WEIGHTS.relationships.manuallySavedContact, reason: "Sender is in your manually saved contacts" });
+	if (!authPolicyReason && contact?.source === "outbound") signals.push({ id: "previously_sent", score: SPAM_WEIGHTS.relationships.previouslySentTo, reason: "You have previously sent email to this address" });
 
 	const identities = getReputationKeys(input.message, fingerprint);
 	const reputationRecords = await Promise.all(identities.map(async (identity) => {
@@ -61,6 +90,9 @@ export async function analyzeSpam(db: AppDatabase, input: SpamAnalysisInput): Pr
 		reason: bayesian.contribution > 0 ? "Content resembles messages previously marked as spam" : "Content resembles messages previously marked as legitimate",
 		metadata: { probability: Number(bayesian.probability.toFixed(3)), trainedMessages: bayesian.trainedMessages },
 	});
+
+	const scoreBeforePolicy = signals.reduce((total, signal) => total + signal.score, 0);
+	if (authPolicyReason && scoreBeforePolicy < SPAM_THRESHOLDS.spam) signals.push({ id: "auth_policy", score: SPAM_THRESHOLDS.spam - scoreBeforePolicy, reason: `${authPolicyReason}; filed as spam by authentication policy` });
 
 	const rawScore = signals.reduce((total, signal) => total + signal.score, 0);
 	const score = Math.max(0, Math.min(100, rawScore));

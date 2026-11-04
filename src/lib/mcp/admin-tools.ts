@@ -8,6 +8,7 @@ import { GET as listAccounts, POST as createAccount } from "@/app/api/v1/account
 import { GET as getAccount, PATCH as updateAccount } from "@/app/api/v1/accounts/[id]/route";
 import { GET as listMailboxes, POST as createMailbox } from "@/app/api/v1/mailboxes/route";
 import { GET as getMailbox, PATCH as updateMailbox, DELETE as deleteMailbox } from "@/app/api/v1/mailboxes/[id]/route";
+import { GET as getStorage, POST as testStorage } from "@/app/api/v1/storage/route";
 import type { McpPrincipal } from "./types";
 
 const adminInput = z.object({
@@ -55,7 +56,7 @@ export function registerAdminMcpTools(server: McpServer, principal: McpPrincipal
 	});
 
 	if (principal.scopes.includes("accounts")) server.registerTool("manage_accounts", {
-		description: "List, inspect, create, or update managed accounts. Actions: list, get, create, update. Pass id for get or update and data for create or update. For create, data accepts username, domainId, password, role?, useAllDomains? (defaults to true for compatibility), and aliases?: [{ domainId, localPart }]. Set useAllDomains to false to assign only the primary address and explicit aliases. Requires a Team license.",
+		description: "List, inspect, create, or update managed accounts. Actions: list, get, create, update. Pass id for get or update and data for create or update. For create, data accepts username, domainId, password, role?, useAllDomains? (defaults to true for compatibility), and aliases?: [{ domainId, localPart }]. Set useAllDomains to false to assign only the primary address and explicit aliases. Requires a Pro or Team license; Pro is limited to its account seats.",
 		inputSchema: adminInput,
 	}, async ({ action, id, data }) => {
 		if (!principal.scopes.includes("accounts")) return result({ error: "Permission denied" }, true);
@@ -89,5 +90,19 @@ export function registerAdminMcpTools(server: McpServer, principal: McpPrincipal
 				default: return result({ error: "Unknown action" }, true);
 			}
 		} catch (error) { return result({ error: error instanceof Error ? error.message : "Mailbox action failed" }, true); }
+	});
+
+	if (principal.scopes.includes("storage")) server.registerTool("manage_storage", {
+		description: "Show which object storage holds raw mail, attachments, Drive files, avatars and backups, and test it. Actions: status (provider, bucket, endpoint), test (writes, reads and deletes a small object to prove the credentials work). Backblaze B2 (B2_* variables) or AWS S3 (S3_* variables) replaces R2 when configured in the Worker environment; credentials are never returned.",
+		inputSchema: adminInput,
+	}, async ({ action }) => {
+		if (!principal.scopes.includes("storage")) return result({ error: "Permission denied" }, true);
+		try {
+			switch (action) {
+				case "status": return responseResult(await getStorage(adminRequest(baseUrl, "/api/v1/storage", authorization)));
+				case "test": return responseResult(await testStorage(adminRequest(baseUrl, "/api/v1/storage", authorization, "POST", {})));
+				default: return result({ error: "Unknown action" }, true);
+			}
+		} catch (error) { return result({ error: error instanceof Error ? error.message : "Storage action failed" }, true); }
 	});
 }

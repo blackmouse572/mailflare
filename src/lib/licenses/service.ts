@@ -30,6 +30,7 @@ function toLicenseStatus(settings: typeof licenseSettings.$inferSelect): License
 		plan: active ? settings.plan : "community",
 		state: settings.state,
 		features: parseFeatures(settings.features),
+		seatLimit: active && settings.plan === "pro" ? settings.seatLimit : null,
 		instanceId: settings.instanceId,
 		instanceUrl: settings.instanceUrl,
 		active,
@@ -45,15 +46,17 @@ export async function getLicenseStatus(env: CloudflareEnv): Promise<LicenseStatu
 export async function getLicenseEntitlements(env: CloudflareEnv): Promise<LicenseEntitlements> {
 	try {
 		const status = await getLicenseStatus(env);
-		// TODO: confirm Paymug's exact feature identifiers when they are documented; plan is authoritative meanwhile.
+		// Pro adds accounts up to its seat limit; Team is unlimited and also unlocks shared mailboxes.
 		return {
 			plan: status.plan,
-			canCustomizeBranding: status.active && (status.plan === "pro" || status.plan === "team"),
-			canManageAccounts: status.active && status.plan === "team",
-			canForwardEmail: status.active && (status.plan === "pro" || status.plan === "team"),
+			canCustomizeBranding: status.active,
+			canManageAccounts: status.active,
+			canShareMailboxes: status.active && status.plan === "team",
+			accountSeatLimit: status.seatLimit,
+			canForwardEmail: status.active,
 		};
 	} catch {
-		return { plan: "community", canCustomizeBranding: false, canManageAccounts: false, canForwardEmail: false };
+		return { plan: "community", canCustomizeBranding: false, canManageAccounts: false, canShareMailboxes: false, accountSeatLimit: 0, canForwardEmail: false };
 	}
 }
 
@@ -102,6 +105,7 @@ async function updateLicenseFromPaymug(
 				plan: "community",
 				state: "deactivated",
 				features: "[]",
+				seatLimit: 1,
 				validatedAt: now,
 				updatedAt: now,
 			})
@@ -132,6 +136,7 @@ async function updateLicenseFromPaymug(
 			plan,
 			state: "active",
 			features: JSON.stringify(result.features ?? []),
+			seatLimit: result.seatLimit === undefined ? settings.seatLimit : result.seatLimit,
 			activatedAt: action === "activate" ? now : settings.activatedAt,
 			validatedAt: now,
 			updatedAt: now,

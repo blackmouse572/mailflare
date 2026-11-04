@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { emailChangesSince, threadChangesSince } from "./changes";
 import { messages } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { buildSnippet, parseRawMime } from "@/lib/email/parse";
@@ -77,8 +78,18 @@ async function scope(ctx: JmapContext) {
 
 export async function loadMessages(ctx: JmapContext, ids: string[]): Promise<MessageRow[]> {
 	if (ids.length === 0) return [];
-	const { condition } = await scope(ctx);
-	return ctx.db.select().from(messages).where(and(condition, inArray(messages.id, ids)));
+	const { ids: accessible, condition } = await scope(ctx);
+	// D1 caps bound parameters per query at 100, and the scope predicate
+	// already binds the accessible mailbox ids, so the remainder is the id
+	// batch size. Callers key rows by id, so dedupe first: an id split over
+	// two batches would otherwise return its row twice.
+	const batch = Math.max(1, 100 - accessible.length);
+	const unique = [...new Set(ids)];
+	const rows: MessageRow[] = [];
+	for (let offset = 0; offset < unique.length; offset += batch) {
+		rows.push(...(await ctx.db.select().from(messages).where(and(condition, inArray(messages.id, unique.slice(offset, offset + batch))))));
+	}
+	return rows;
 }
 
 export const emailGet: JmapMethodHandler = async (ctx, args) => {
@@ -147,13 +158,16 @@ export const emailQuery: JmapMethodHandler = async (ctx, args) => {
 	};
 };
 
-export const emailChanges: JmapMethodHandler = async () => {
-	return { type: "cannotCalculateChanges", description: "Email change history is not kept; run Email/query again." };
-};
+export const emailChanges: JmapMethodHandler = async (ctx, args) => emailChangesSince(ctx, args);
 
 export const emailQueryChanges: JmapMethodHandler = async () => {
 	return { type: "cannotCalculateChanges" };
 };
+
+/** RFC 6901 unescape: ~1 -> /, then ~0 -> ~ (order matters for ~01 -> ~1 round-trip). */
+function unescapeJsonPointer(token: string): string {
+	return token.replace(/~1/g, "/").replace(/~0/g, "~");
+}
 
 /** Where a patched `mailboxIds` puts the message: exactly one JMAP mailbox is supported. */
 function targetFromMailboxIds(row: MessageRow, patch: Record<string, unknown>, accessible: Set<string>): { status?: string; folderId?: string | null } | { error: Record<string, unknown> } | null {
@@ -166,7 +180,7 @@ function targetFromMailboxIds(row: MessageRow, patch: Record<string, unknown>, a
 		for (const [key, value] of Object.entries(patch)) {
 			if (!key.startsWith("mailboxIds/")) continue;
 			touched = true;
-			const id = key.slice("mailboxIds/".length);
+			const id = unescapeJsonPointer(key.slice("mailboxIds/".length));
 			if (value) current.add(id);
 			else current.delete(id);
 		}
@@ -195,7 +209,7 @@ function keywordsFromPatch(patch: Record<string, unknown>): { read?: boolean; st
 		result.starred = !!map[KEYWORD_FLAGGED];
 	}
 	for (const [key, value] of Object.entries(patch)) {
-		if (key.startsWith("keywords/")) apply(key.slice("keywords/".length), value);
+		if (key.startsWith("keywords/")) apply(unescapeJsonPointer(key.slice("keywords/".length)), value);
 	}
 	return result;
 }
@@ -447,13 +461,22 @@ export const emailUnsupported = (method: string): JmapMethodHandler => async () 
 export const threadGet: JmapMethodHandler = async (ctx, args) => {
 	const ids = args.ids as string[] | null | undefined;
 	if (!ids) throw new JmapError("requestTooLarge", "Thread/get needs an explicit list of ids");
-	const { condition } = await scope(ctx);
+	const { ids: accessible, condition } = await scope(ctx);
 	const threadKey = sql<string>`coalesce(${messages.threadId}, ${messages.id})`;
-	const rows = await ctx.db
-		.select({ id: messages.id, thread: threadKey })
-		.from(messages)
-		.where(and(condition, inArray(threadKey, ids)))
-		.orderBy(asc(messages.createdAt));
+	// Same D1 bound-parameter budget as loadMessages; dedupe so a repeated
+	// thread id cannot list its messages twice within one group.
+	const batch = Math.max(1, 100 - accessible.length);
+	const unique = [...new Set(ids)];
+	const rows: { id: string; thread: string }[] = [];
+	for (let offset = 0; offset < unique.length; offset += batch) {
+		rows.push(
+			...(await ctx.db
+				.select({ id: messages.id, thread: threadKey })
+				.from(messages)
+				.where(and(condition, inArray(threadKey, unique.slice(offset, offset + batch))))
+				.orderBy(asc(messages.createdAt)))
+		);
+	}
 	const grouped = new Map<string, string[]>();
 	for (const row of rows) grouped.set(row.thread, [...(grouped.get(row.thread) ?? []), row.id]);
 	return {
@@ -464,7 +487,7 @@ export const threadGet: JmapMethodHandler = async (ctx, args) => {
 	};
 };
 
-export const threadChanges: JmapMethodHandler = async () => ({ type: "cannotCalculateChanges" });
+export const threadChanges: JmapMethodHandler = async (ctx, args) => threadChangesSince(ctx, args);
 
 /** SearchSnippet/get: the subject and a body excerpt around the first match, with <mark> tags. */
 export const searchSnippetGet: JmapMethodHandler = async (ctx, args) => {

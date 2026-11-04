@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from "@/db/with-database";
 import { hasCloudflareCredentials, isNodeRuntime } from "@/lib/runtime";
 import type { SetupRequirementCheck } from "./types";
 
@@ -5,13 +6,14 @@ export function getSetupRequirementChecks(env: CloudflareEnv): SetupRequirementC
 	const hasApiToken = !!env.CF_TOKEN?.trim();
 	const hasGlobalKey = !!env.CF_API_KEY?.trim() && !!env.CF_EMAIL?.trim();
 
+	const database = getDatabaseConfig(env);
 	if (isNodeRuntime(env)) {
 		const mailer = env.EMAIL as unknown as { configured?: boolean };
 		return [
 			{
 				key: "Database",
 				configured: !!env.DB,
-				message: "DATA_DIR must be writable; the SQLite database is created there on start.",
+				message: database.driver === "d1" ? "DATA_DIR must be writable; the SQLite database is created there on start." : "DATABASE_URL must be reachable; migrations are applied on start.",
 			},
 			{
 				key: "Outbound mail",
@@ -35,9 +37,9 @@ export function getSetupRequirementChecks(env: CloudflareEnv): SetupRequirementC
 			message: "Set CF_TOKEN, or set both CF_API_KEY and CF_EMAIL.",
 		},
 		{
-			key: "D1 database",
+			key: database.driver === "d1" ? "D1 database" : "Database",
 			configured: !!env.DB,
-			message: "Deploy the Worker with the DB binding from wrangler.jsonc.",
+			message: database.driver === "d1" ? "Deploy the Worker with the DB binding from wrangler.jsonc." : "Check DATABASE_URL (and DATABASE_DRIVER) for the external database.",
 		},
 	];
 }

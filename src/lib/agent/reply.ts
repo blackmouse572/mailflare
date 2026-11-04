@@ -7,8 +7,9 @@ import type { AgentToolContext } from "./types";
 import type { messages } from "@/db/schema";
 
 export async function getReplyRecipients(context: AgentToolContext, source: typeof messages.$inferSelect, replyAll: boolean) {
-	let recipient = normalizeEmailAddress(source.fromAddr);
-	if (source.rawR2Key) {
+	let recipient = getEmailAddressList(source.replyTo).at(0) ?? normalizeEmailAddress(source.fromAddr);
+	// Messages stored before the reply_to column existed only carry it in the raw MIME.
+	if (!source.replyTo && source.rawR2Key) {
 		const object = await context.env.BUCKET.get(source.rawR2Key);
 		if (object) {
 			const parsed = await PostalMime.parse(await object.arrayBuffer());

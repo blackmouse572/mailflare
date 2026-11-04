@@ -3,7 +3,7 @@ import { getEnv } from "@/lib/cloudflare";
 import { requireUser } from "@/lib/auth/cookies";
 import { sendEmailSchema } from "@/lib/validators";
 import { sendEmail } from "@/lib/email/send";
-import { parseSendRequest } from "./utils";
+import { isPastSchedule, parseSendRequest } from "./utils";
 import { RequestBodyTooLargeError } from "@/lib/http/errors";
 import { getSendErrorStatus } from "./error-utils";
 import { getDb } from "@/db";
@@ -26,6 +26,10 @@ export async function POST(request: Request) {
 	const parsed = sendEmailSchema.omit({ attachments: true }).safeParse(fields);
 	if (!parsed.success) {
 		return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+	}
+
+	if (isPastSchedule(parsed.data.scheduledAt)) {
+		return NextResponse.json({ error: "Scheduled time has already passed" }, { status: 400 });
 	}
 
 	// Files already stored on the draft (a forwarded message's attachments) ride

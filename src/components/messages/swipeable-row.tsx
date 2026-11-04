@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useRef, useState, type PointerEvent, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 
 type SwipeAction = {
 	label: string;
@@ -18,13 +18,14 @@ type SwipeableRowProps = {
 	// Revealed when dragging right to left.
 	endAction: SwipeAction;
 	disabled?: boolean;
+	role?: string;
 };
 
 const COMMIT_DISTANCE = 88;
 const INTENT_DISTANCE = 10;
 
 // Touch-only swipe gestures; vertical scrolling stays with the browser via touch-action: pan-y.
-export function SwipeableRow({ children, startAction, endAction, disabled }: SwipeableRowProps) {
+export function SwipeableRow({ children, startAction, endAction, disabled, role }: SwipeableRowProps) {
 	const [offset, setOffset] = useState(0);
 	const [dragging, setDragging] = useState(false);
 	const gesture = useRef<{ x: number; y: number; active: boolean; id: number } | null>(null);
@@ -74,7 +75,7 @@ export function SwipeableRow({ children, startAction, endAction, disabled }: Swi
 	const armed = Math.abs(offset) >= COMMIT_DISTANCE;
 
 	return (
-		<div className="relative overflow-hidden">
+		<div role={role} className="relative overflow-hidden">
 			{action && Icon && (
 				<div
 					aria-hidden="true"

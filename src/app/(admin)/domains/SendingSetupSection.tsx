@@ -98,7 +98,7 @@ export default function SendingSetupSection({ domain, onChange, busy, message, c
 					);
 				})}
 			</ul>
-			{message && <p className="mt-2 text-xs text-red-600">{message}</p>}
+			{message && <p role="alert" className="mt-2 text-xs text-red-600">{message}</p>}
 			{error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
 		</section>
 	);

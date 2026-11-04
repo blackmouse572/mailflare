@@ -8,6 +8,10 @@ export async function authenticateAdminApiKey(env: CloudflareEnv, request: Reque
 	return auth?.user.role === "admin" && auth.scopes.includes(scope) ? auth : null;
 }
 
+export async function canShareAdminMailboxes(env: CloudflareEnv): Promise<boolean> {
+	return (await getLicenseEntitlements(env)).canShareMailboxes;
+}
+
 export async function canManageAdminAccounts(env: CloudflareEnv): Promise<boolean> {
 	return (await getLicenseEntitlements(env)).canManageAccounts;
 }

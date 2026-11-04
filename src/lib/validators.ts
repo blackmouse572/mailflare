@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { isPublicHttpsUrl, PUBLIC_HTTPS_URL_MESSAGE } from "@/lib/security/public-url";
 import { getEmailAddress, splitEmailAddressList } from "@/lib/email/address";
 import { DEFAULT_FOLDER_COLOR, FOLDER_COLOR_VALUES } from "@/lib/folders/colors";
+import { MAX_FOLLOW_UP_DAYS } from "@/lib/follow-ups/follow-up-utils";
 
 /**
  * Recipients arrive either as one comma-separated header string (the composer)
@@ -30,6 +32,9 @@ export const sendEmailSchema = z.object({
 	text: z.string().max(2 * 1024 * 1024).optional(),
 	mailboxId: z.string().min(1).max(200),
 	scheduledAt: z.string().datetime().optional(),
+	undoSend: z.boolean().optional(),
+	trackOpens: z.boolean().optional(),
+	followUpDays: z.number().int().min(1).max(MAX_FOLLOW_UP_DAYS).optional(),
 	attachments: z
 		.array(
 			z.object({
@@ -52,6 +57,7 @@ export const firstRunRegisterSchema = z.object({
 	domain: z.string().min(3),
 	enableSending: z.boolean().optional(),
 	replaceMxRecords: z.boolean().optional(),
+	skipDns: z.boolean().optional(),
 	username: z.string().min(1).max(64).regex(/^[a-zA-Z0-9._%+-]+$/),
 	password: z.string().min(8),
 	resetEmail: z.string().email(),
@@ -72,6 +78,8 @@ export const addDomainSchema = z.object({
 	enableRouting: z.boolean().optional(),
 	enableSending: z.boolean().optional(),
 	replaceMxRecords: z.boolean().optional(),
+	/** Record the domain without adding or checking DNS; a warning shows until it is confirmed. */
+	skipDns: z.boolean().optional(),
 	/** Which service sends mail for the domain; derived from `enableSending` when omitted. */
 	sendingProvider: z.enum(["none", "cloudflare", "resend", "ses"]).optional(),
 	/** Which service receives mail for the domain; Cloudflare Email Routing when omitted. */
@@ -91,6 +99,12 @@ export const passwordResetConfirmSchema = z.object({
 	token: z.string().min(8).max(200),
 	password: z.string().min(8).max(128),
 });
+
+/** `/api/auth/device`: either email + password, or a challenge + code after MFA. */
+export const deviceLoginSchema = z.union([
+	z.object({ email: z.string().trim().email(), password: z.string().min(1), deviceName: z.string().trim().min(1).max(100) }),
+	z.object({ challengeToken: z.string().min(8).max(200), code: z.string().trim().min(6).max(32), deviceName: z.string().trim().min(1).max(100) }),
+]);
 
 export const mfaVerifySchema = z.object({
 	challengeToken: z.string().min(8).max(200),
@@ -239,6 +253,14 @@ export const updateTrashRetentionSettingsSchema = z.object({
 	days: z.number().int().min(1).max(365).nullable(),
 });
 
+export const updateRemoteContentSettingsSchema = z.object({
+	mode: z.enum(["ask", "new_sender", "allow"]),
+});
+
+export const trustRemoteContentSenderSchema = z.object({
+	sender: z.string().trim().toLowerCase().email().max(320),
+});
+
 export const updateRecipientAddressSettingsSchema = z.object({
 	enabled: z.boolean(),
 });
@@ -258,7 +280,8 @@ export const routingRuleSchema = z.object({
 	mailboxId: z.string().min(1),
 	folderId: z.string().optional(),
 	destination: z.string().min(1).optional(),
-	forwardTo: z.string().email().optional(),
+	forwardTo: z.string().trim().email().optional(),
+	keepCopy: z.boolean().optional(),
 	priority: z.number().int().default(0),
 });
 
@@ -317,7 +340,7 @@ export const domainRoutingRuleSchema = z
 	});
 
 export const webhookSchema = z.object({
-	url: z.string().url().max(2048),
+	url: z.string().url().max(2048).refine(isPublicHttpsUrl, PUBLIC_HTTPS_URL_MESSAGE),
 	description: z.string().trim().max(200).optional(),
 	events: z
 		.array(z.enum(["message.inbound", "message.outbound", "message.failed"]))
@@ -327,7 +350,7 @@ export const webhookSchema = z.object({
 });
 
 export const webhookUpdateSchema = z.object({
-	url: z.string().url().max(2048).optional(),
+	url: z.string().url().max(2048).refine(isPublicHttpsUrl, PUBLIC_HTTPS_URL_MESSAGE).optional(),
 	description: z.string().trim().max(200).nullish(),
 	events: z
 		.array(z.enum(["message.inbound", "message.outbound", "message.failed"]))

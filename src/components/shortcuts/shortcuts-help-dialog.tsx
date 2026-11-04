@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
-import { X, Keyboard } from "lucide-react";
+import React, { useId, useRef } from "react";
+import { X, Keyboard } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import type { TranslationKey } from "@/lib/i18n/types";
 import type { ShortcutDefinition } from "./types";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 
 interface ShortcutsHelpDialogProps {
   isOpen: boolean;
@@ -24,13 +25,20 @@ function withKey(text: string, key: string) {
   );
 }
 
-export function ShortcutsHelpDialog({
-  isOpen,
+export function ShortcutsHelpDialog({ isOpen, onClose, shortcuts }: ShortcutsHelpDialogProps) {
+  if (!isOpen) return null;
+  return <ShortcutsHelpDialogContent onClose={onClose} shortcuts={shortcuts} />;
+}
+
+function ShortcutsHelpDialogContent({
   onClose,
   shortcuts,
-}: ShortcutsHelpDialogProps) {
+}: Omit<ShortcutsHelpDialogProps, "isOpen">) {
   const { t } = useLanguage();
-  if (!isOpen) return null;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  useDialogFocus(dialogRef, closeRef);
 
   const grouped = shortcuts.reduce((acc, item) => {
     if (!acc[item.category]) acc[item.category] = [];
@@ -59,7 +67,18 @@ export function ShortcutsHelpDialog({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="relative w-full max-w-2xl bg-white border border-neutral-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 max-h-[85vh]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" && event.key !== "?") return;
+          event.stopPropagation();
+          onClose();
+        }}
+        className="relative w-full max-w-2xl bg-white border border-neutral-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 max-h-[85vh]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-100">
           <div className="flex items-center gap-2.5">
@@ -67,15 +86,16 @@ export function ShortcutsHelpDialog({
               <Keyboard className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-neutral-900">
+              <h2 id={titleId} className="text-base font-semibold text-neutral-900">
                 {t("shortcutsHelp.title")}
               </h2>
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-neutral-500">
                 {t("shortcutsHelp.subtitle")}
               </p>
             </div>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label={t("shortcutsHelp.close")}
@@ -89,7 +109,7 @@ export function ShortcutsHelpDialog({
         <div className="overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
           {Object.entries(grouped).map(([category, items]) => (
             <div key={category} className="space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 border-b border-neutral-100 pb-1.5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 border-b border-neutral-100 pb-1.5">
                 {t(`shortcut.category.${category}` as TranslationKey)}
               </h3>
               <div className="space-y-2">
@@ -112,7 +132,7 @@ export function ShortcutsHelpDialog({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-neutral-50 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-400">
+        <div className="px-6 py-3 bg-neutral-50 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
           <span>{withKey(t("shortcutsHelp.pressToToggle", { key: "{key}" }), "?")}</span>
           <span>{withKey(t("shortcutsHelp.pressToClose", { key: "{key}" }), "ESC")}</span>
         </div>

@@ -1,12 +1,3 @@
-export type ImportResult = {
-	imported?: number;
-	skipped?: number;
-	errors?: string[];
-	error?: string;
-	total?: number;
-	nextOffset?: number | null;
-};
-
 export type ImapFormState = {
 	host: string;
 	port: string;
@@ -28,7 +19,7 @@ export type ImportSourceOption = {
 	system?: boolean;
 };
 
-export type ImportTab = "file" | "imap";
+export type ImportTab = "file" | "imap" | "takeout";
 
 export type ImportSourceItem = {
 	id: string;

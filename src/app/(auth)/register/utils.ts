@@ -50,7 +50,7 @@ export async function checkExistingMx(hostname: string): Promise<{ ok: boolean; 
 
 export async function submitRegistration(
 	form: FormData,
-	payload: { firstRun: boolean; domain: string; enableSending?: boolean; replaceMxRecords?: boolean },
+	payload: { firstRun: boolean; domain: string; enableSending?: boolean; replaceMxRecords?: boolean; skipDns?: boolean },
 ): Promise<{ ok: boolean; data: RegisterResult }> {
 	const res = await fetch("/api/auth/register", {
 		method: "POST",
@@ -61,6 +61,7 @@ export async function submitRegistration(
 						domain: payload.domain,
 						enableSending: payload.enableSending,
 						replaceMxRecords: payload.replaceMxRecords,
+						skipDns: payload.skipDns,
 						username: form.get("username"),
 						password: form.get("password"),
 						resetEmail: form.get("resetEmail"),

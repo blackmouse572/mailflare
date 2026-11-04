@@ -26,7 +26,7 @@ export async function prepareCloudflareAttachments(
 			estimatedSize += encodedSize;
 			continue;
 		}
-		if (!attachment.storageId) throw new Error("Large attachment was not stored in R2");
+		if (!attachment.storageId) throw new Error("Large attachment was not stored in object storage");
 		linked.push({ filename: attachment.filename, size, url: await getOrCreateSharedAttachmentUrl(env, attachment.storageId, message.publicOrigin) });
 	}
 	if (!linked.length) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, Clock, Mail, MailOpen, Trash2 } from "lucide-react";
+import { Archive, Clock, Mail, MailOpen, Trash2 } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,7 +36,7 @@ export function MessageListRowActions({ message, onAction }: MessageListRowActio
 
 	return (
 		<>
-			<div className="pointer-events-none absolute right-6 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 bg-[#f2f6fc]">
+			<div className="pointer-events-none absolute right-6 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 pl-3 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 bg-[#f2f6fc] dark:bg-[#f2f6fc]">
 				<Tooltip label={t("common.archive")}>
 					<Button type="button" variant="ghost" size="sm" onClick={() => void onAction("archive")} aria-label={t("common.archive")}>
 						<Archive className="h-4 w-4" />
@@ -74,7 +74,7 @@ export function MessageListRowActions({ message, onAction }: MessageListRowActio
 					<div className="space-y-4">
 						<div className="grid gap-2 sm:grid-cols-3">
 							{snoozePresets.map((preset) => (
-								<Button key={preset.labelKey} type="button" variant="outline" size="sm" onClick={() => setSnoozedUntil(preset.value)}>
+								<Button key={preset.labelKey} type="button" variant="outline" size="sm" aria-pressed={snoozedUntil === preset.value} onClick={() => setSnoozedUntil(preset.value)}>
 									{t(preset.labelKey)}
 								</Button>
 							))}
@@ -83,7 +83,7 @@ export function MessageListRowActions({ message, onAction }: MessageListRowActio
 							<label htmlFor={`snooze-until-${message.id}`} className="text-sm font-medium text-neutral-700">{t("snooze.selectDateTime", { timeZone: getUserTimeZone() })}</label>
 							<Input id={`snooze-until-${message.id}`} type="datetime-local" value={snoozedUntil} onChange={(event) => setSnoozedUntil(event.target.value)} />
 						</div>
-						{error && <p className="text-sm text-red-600">{error}</p>}
+						{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 						<Button type="button" onClick={() => void handleSnooze()} disabled={snoozing}>
 							{snoozing ? t("common.snoozing") : t("common.snooze")}
 						</Button>

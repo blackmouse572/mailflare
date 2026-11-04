@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
+import { scheduledMessageCondition } from "@/lib/email/scheduled";
 import { getDb } from "@/db";
 import { agentDraftMetadata, domains, mailboxes, messages } from "@/db/schema";
 import { buildSnippet } from "@/lib/email/parse";
@@ -17,6 +18,7 @@ import { getReplyRecipients } from "./reply";
 import { formatAgentDraftBody } from "./draft-format";
 import { editAgentDraft } from "./edit-draft";
 import { requestAgentSend } from "./approvals/utils";
+import { toolEmailSchema } from "./schema-utils";
 import type { AgentDraftEditInput } from "./types";
 
 const id = z.string().min(1).max(160);
@@ -24,11 +26,11 @@ const body = z.string().trim().min(1).max(40_000).describe("The recipient-facing
 const limit = z.number().int().min(1).max(50).default(20);
 
 export const emailToolSchemas = {
-	list_emails: z.object({ folder: z.enum(["inbox", "sent", "draft", "archived", "trash", "spam"]).default("inbox"), limit, cursor: id.optional() }),
+	list_emails: z.object({ folder: z.enum(["inbox", "sent", "scheduled", "draft", "archived", "trash", "spam"]).default("inbox"), limit, cursor: id.nullish().describe("Omit or set to null for the first page. For subsequent pages, use only the exact nextCursor returned by list_emails for this mailbox and folder. Stop when nextCursor is null. Never invent a cursor or use a page number or offset such as '0'.") }),
 	get_email: z.object({ emailId: id }),
 	get_thread: z.object({ emailId: id }),
-	search_emails: z.object({ query: z.string().trim().min(1).max(300), folder: z.enum(["inbox", "sent", "draft", "archived", "trash", "spam"]).optional(), limit }),
-	draft_email: z.object({ to: z.string().email(), subject: z.string().trim().min(1).max(500), body }),
+	search_emails: z.object({ query: z.string().trim().min(1).max(300), folder: z.enum(["inbox", "sent", "scheduled", "draft", "archived", "trash", "spam"]).optional(), limit }),
+	draft_email: z.object({ to: toolEmailSchema, subject: z.string().trim().min(1).max(500), body }),
 	draft_reply: z.object({ emailId: id, body, replyAll: z.boolean().default(false) }),
 	edit_draft: z.object({
 		draftId: id, expectedRevision: z.number().int().positive(),
@@ -47,7 +49,7 @@ export const emailToolSchemas = {
 } as const;
 
 export const emailToolDescriptions: Record<EmailToolName, string> = {
-	list_emails: "List email metadata in a mailbox folder with pagination.",
+	list_emails: "List email metadata in a mailbox folder with pagination. Omit cursor or set it to null for the first page; use the returned nextCursor for subsequent pages.",
 	get_email: "Read one email and its attachment metadata without marking it read.",
 	get_thread: "Read the recent conversation containing an email before drafting a reply.",
 	search_emails: "Search email subject and body in this mailbox.",
@@ -81,10 +83,10 @@ async function requireAccess(context: AgentToolContext, write = false, manage = 
 	return access;
 }
 
-async function ownMessage(context: AgentToolContext, messageId: string) {
+async function ownMessage(context: AgentToolContext, messageId: string, notFoundMessage = "Message not found") {
 	await requireAccess(context);
 	const [row] = await getDb(context.env).select().from(messages).where(and(eq(messages.id, messageId), eq(messages.mailboxId, context.mailboxId))).limit(1);
-	if (!row || (row.status === "draft" && row.userId !== context.user.id)) throw new Error("Message not found");
+	if (!row || (row.status === "draft" && row.userId !== context.user.id)) throw new Error(notFoundMessage);
 	return row;
 }
 
@@ -125,12 +127,13 @@ export async function runEmailTool(context: AgentToolContext, name: EmailToolNam
 		const conditions = [eq(messages.mailboxId, context.mailboxId)];
 		if (folder === "draft") conditions.push(eq(messages.status, "draft"), eq(messages.userId, context.user.id));
 		else if (folder === "sent") conditions.push(eq(messages.status, "sent"));
+		else if (folder === "scheduled") conditions.push(scheduledMessageCondition(db));
 		else if (folder === "inbox") conditions.push(eq(messages.status, "received"), isNull(messages.folderId));
 		else if (folder === "archived" || folder === "trash" || folder === "spam") conditions.push(eq(messages.status, folder));
 		else conditions.push(or(eq(messages.userId, context.user.id), eq(messages.direction, "inbound"))!);
 		if (name === "search_emails") conditions.push(...buildSearchConditions(input.query as string, context.timeZone));
 		if (input.cursor) {
-			const cursor = await ownMessage(context, input.cursor as string);
+			const cursor = await ownMessage(context, input.cursor as string, "Invalid pagination cursor. To start from the first page, omit cursor or set it to null. For subsequent pages, use only the nextCursor returned by list_emails for this mailbox and folder; never invent a cursor or use a page number or offset.");
 			conditions.push(lt(messages.createdAt, cursor.createdAt));
 		}
 		const pageSize = input.limit as number;
@@ -149,14 +152,14 @@ export async function runEmailTool(context: AgentToolContext, name: EmailToolNam
 		const rows = anchor.threadId
 			? await db.select().from(messages).where(and(eq(messages.mailboxId, context.mailboxId), eq(messages.threadId, anchor.threadId))).orderBy(desc(messages.createdAt)).limit(21)
 			: [anchor];
-		return { emails: rows.slice(0, 20).reverse().filter((row) => row.status !== "draft" || row.userId === context.user.id).map((row) => ({ ...publicMessage(row), text: (row.textBody || htmlToReadableText(row.htmlBody)).slice(0, 5_000) })), truncated: rows.length > 20 };
+		return { emails: rows.slice(0, 20).reverse().filter((row) => row.status === "draft" ? row.userId === context.user.id : (row.status !== "spam" && row.status !== "trash") || row.id === anchor.id).map((row) => ({ ...publicMessage(row), text: (row.textBody || htmlToReadableText(row.htmlBody)).slice(0, 5_000) })), truncated: rows.length > 20 };
 	}
 	if (name === "draft_email") return createDraft(context, { to: input.to as string, subject: input.subject as string, body: input.body as string });
 	if (name === "draft_reply") {
 		const source = await ownMessage(context, input.emailId as string);
 		if (source.direction !== "inbound" || source.status === "spam" || source.status === "trash") throw new Error("Cannot reply to this message");
 		const recipients = await getReplyRecipients(context, source, input.replyAll as boolean);
-		const subject = /^Re:/i.test(source.subject ?? "") ? source.subject! : `Re: ${source.subject ?? ""}`;
+		const subject = /^re\s*(\[\d+\])?\s*:/i.test(source.subject ?? "") ? source.subject! : `Re: ${source.subject ?? ""}`;
 		return createDraft(context, { ...recipients, subject, body: input.body as string, source });
 	}
 	if (name === "edit_draft") return editAgentDraft(context, input as unknown as AgentDraftEditInput);

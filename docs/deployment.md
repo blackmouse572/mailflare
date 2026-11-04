@@ -60,6 +60,8 @@ across deployments so existing browser subscriptions remain valid.
 
 Setup applies the committed migrations through the Worker's D1 binding before creating the first admin account.
 
+To store data in PostgreSQL, MySQL, Turso/libSQL or another database instead of D1, set `DATABASE_URL` (and `DATABASE_DRIVER` when it cannot be inferred) as a Worker variable or secret before running setup. The same setup and **Update database** flow then applies that database's migrations. See [Databases](databases.md).
+
 ## Step 4: Connect your primary domain and create an account
 
 1. Enter a domain that already uses Cloudflare DNS on the same account as your `CF_TOKEN`.
@@ -74,6 +76,32 @@ Resend and SES receive mail by calling your app, so set `APP_URL` to the app's p
 Your inbox should be ready to send and receive emails
 
 ---
+
+## Deploy with an AI coding agent
+
+Paste the prompt below into an agent with terminal access. Give it your Cloudflare account ID and **two separate scoped API tokens** through the agent's secret input. Never put them in a public chat, repository, or committed file.
+
+- **Deployment token** (Wrangler uses it as `CLOUDFLARE_API_TOKEN`): scope it to the target account with **Workers Scripts Edit** (or **Workers Admin** if you see Cloudflare's newer roles), **D1 Edit**, **Workers R2 Storage Edit**, **Queues Edit**, and **Account Settings Read**. Add **Workers Routes Edit** for the target zone only if the agent should attach a custom domain or route. See Cloudflare's [token permissions](https://developers.cloudflare.com/fundamentals/api/reference/permissions/) and [Workers roles](https://developers.cloudflare.com/workers/authorization/workers/).
+- **Runtime token** (stored as the Worker secret `CF_TOKEN`): use the domain permissions above. Add **Email Sending Edit** to send mail. It must cover the zones you will connect in Mailflare.
+
+```text
+Install Mailflare from https://github.com/hieunc229/mailflare in my Cloudflare account.
+Ask me for my Cloudflare account ID, a scoped deployment API token, and a separate
+runtime CF_TOKEN through a secret input. Never print, commit, or place either token
+in a command argument or a tracked file. Use the deployment token only for Wrangler
+authentication (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID).
+
+Read README.md, docs/deployment.md, and wrangler.jsonc first. Keep the Worker name
+exactly mailflare. In the selected account, create or reuse the D1 database
+mailflare, R2 bucket mailflare-raw, and Queues mailflare-inbound,
+mailflare-outbound, and mailflare-agent. Set the D1 database_id in the local
+Wrangler config without committing that account-specific ID. Install dependencies,
+run npm run deploy, and set the runtime CF_TOKEN as a Worker secret. Do not run
+remote D1 migrations manually; the /setup flow initializes the database.
+
+Give me the deployed URL and any remaining Cloudflare account actions. I will
+open /setup, create the first admin account, and connect my domain there.
+```
 
 ## Manual deployment
 
@@ -94,13 +122,40 @@ npm run db:migrate:remote
 
 Remote migrations require the target account's `database_id` in your local `wrangler.jsonc`. Do not commit an account-specific database ID to a reusable repository.
 
+## Object storage (R2, Backblaze B2 or AWS S3)
+
+Raw mail, attachments, Drive files, avatars, branding icons, JMAP uploads and backups all live in one bucket. By default that is the `BUCKET` R2 binding in `wrangler.jsonc`. To use Backblaze B2 instead, set four Worker variables (as secrets, or in `.dev.vars` locally):
+
+| Variable | Example | Purpose |
+| --- | --- | --- |
+| `B2_KEY_ID` | `004abc...` | Application key ID |
+| `B2_APPLICATION_KEY` | `K004...` | Application key secret |
+| `B2_BUCKET` | `mailflare` | Bucket name |
+| `B2_ENDPOINT` | `s3.us-west-004.backblazeb2.com` | S3-compatible endpoint from the bucket page; the region is read from it |
+
+```bash
+npx wrangler secret put B2_KEY_ID
+npx wrangler secret put B2_APPLICATION_KEY
+npx wrangler secret put B2_BUCKET
+npx wrangler secret put B2_ENDPOINT
+```
+
+To use AWS S3 instead, set `S3_BUCKET`, `S3_REGION` and credentials: `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`, which fall back to `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` so one IAM user can serve SES and storage. The bucket must be private and in the named region; the IAM user needs `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and `s3:AbortMultipartUpload` on `arn:aws:s3:::<bucket>/*`. If both are configured, B2 wins.
+
+When all four B2 variables (or the S3 ones) are present that storage replaces R2 everywhere; with any missing, R2 stays in use (a partial setup is reported by `GET /api/v1/storage`). The R2 binding can stay in `wrangler.jsonc` and is simply unused. Use a bucket-restricted application key with read and write access, and keep the bucket private. Notes:
+
+- **Switching does not copy data.** Objects already in R2 are not moved; copy them to the bucket first (for example with `rclone`, keeping the same keys) or old mail bodies, attachments and Drive files will report as missing.
+- **Drive upload parts** are buffered one at a time in the Worker (64 MB each). B2 and S3 require every part but the last to be at least 5 MB, which holds.
+- **Lifecycle.** Set the bucket's lifecycle rule to keep only the last version and to delete unfinished large files after a few days, as R2 would abort incomplete multipart uploads.
+- **Test it** with `POST /api/v1/storage` (admin key with the `storage` scope), or the `manage_storage` MCP tool with `action: "test"`; it writes, reads and deletes a small object.
+
 ## Database backups
 
-Mailflare exports its D1 records as JSON and stores the backup files in the configured R2 bucket. A cron trigger in `wrangler.jsonc` runs daily at 02:00 UTC and applies the schedule selected under **Admin → Backups**. Manual backups run the same record export directly from the admin API.
+Mailflare exports its D1 records as JSON and stores the backup files in the configured storage bucket (R2, or Backblaze B2 when configured). A cron trigger in `wrangler.jsonc` runs daily at 02:00 UTC and applies the schedule selected under **Admin → Backups**. Manual backups run the same record export directly from the admin API.
 
 Deploy the complete Worker with `npm run deploy` whenever the cron trigger is added or changed.
 
-After upgrading an existing installation and confirming the cron trigger is active, the old Workflow can be removed with `npx wrangler workflows delete mailflare-database-backup`. Deleting it also removes its historical Workflow instances; backup files in R2 and rows in Mailflare's backup history are unaffected.
+After upgrading an existing installation and confirming the cron trigger is active, the old Workflow can be removed with `npx wrangler workflows delete mailflare-database-backup`. Deleting it also removes its historical Workflow instances; backup files in storage and rows in Mailflare's backup history are unaffected.
 
 ## Email assistant and MCP
 

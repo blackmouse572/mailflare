@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, CircleX, Database, RefreshCw } from "lucide-react";
+import { CheckCircle2, CircleX, Database, RefreshCw } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -105,22 +105,26 @@ export function AdminUpdateCard() {
 
 				{!isChecking && status?.configured === false && (
 					<div className="space-y-3">
-						<p className="text-sm text-neutral-600">{t("update.completeConfig")}</p>
-						<ul className="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-100">
-							{status.configuration?.map((item) => (
-								<li key={item.name} className="flex items-center gap-3 px-4 py-3 text-sm">
-									{item.configured ? (
-										<CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
-									) : (
-										<CircleX className="h-4 w-4 shrink-0 text-red-600" />
-									)}
-									<code className="text-xs font-medium text-neutral-800">{item.name}</code>
-									<span className={`ml-auto text-xs font-medium ${item.configured ? "text-green-700" : "text-red-600"}`}>
-										{item.configured ? t("update.configured") : t("update.missing")}
-									</span>
-								</li>
-							))}
-						</ul>
+						<p className="text-sm text-neutral-600">
+							{status.configuration?.length ? t("update.completeConfig") : t("update.selfHosted")}
+						</p>
+						{!!status.configuration?.length && (
+							<ul className="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-100">
+								{status.configuration.map((item) => (
+									<li key={item.name} className="flex items-center gap-3 px-4 py-3 text-sm">
+										{item.configured ? (
+											<CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+										) : (
+											<CircleX className="h-4 w-4 shrink-0 text-red-600" />
+										)}
+										<code className="text-xs font-medium text-neutral-800">{item.name}</code>
+										<span className={`ml-auto text-xs font-medium ${item.configured ? "text-green-700" : "text-red-600"}`}>
+											{item.configured ? t("update.configured") : t("update.missing")}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
 					</div>
 				)}
 
@@ -148,7 +152,11 @@ export function AdminUpdateCard() {
 								</button>
 							)}
 						</div>
+					</div>
+				)}
 
+				{(isCheckingMigrations || migrationStatus) && (
+					<div className="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-100">
 						{isCheckingMigrations && (
 							<div className="flex items-center gap-3 px-4 py-4">
 								<Skeleton className="h-4 w-4 rounded-full" />
@@ -179,6 +187,13 @@ export function AdminUpdateCard() {
 								{t("update.deployMatching")}
 							</div>
 						)}
+
+						{!isCheckingMigrations && migrationStatus?.ready && (
+							<div className="flex items-center gap-3 px-4 py-4">
+								<CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+								<p className="text-sm text-neutral-700">{t("update.databaseUpToDate")}</p>
+							</div>
+						)}
 					</div>
 				)}
 
@@ -188,12 +203,13 @@ export function AdminUpdateCard() {
 						{result.runUrl && (
 							<a className="font-medium underline" href={result.runUrl} target="_blank" rel="noreferrer">
 								{t("update.viewWorkflow")}
+								<span className="sr-only"> ({t("common.opensInNewTab")})</span>
 							</a>
 						)}
 					</p>
 				)}
-				{error && <p className="text-sm text-red-600">{error}</p>}
-				{migrationError && <p className="text-sm text-red-600">{migrationError}</p>}
+				{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+				{migrationError && <p role="alert" className="text-sm text-red-600">{migrationError}</p>}
 			</CardContent>
 		</Card>
 	);

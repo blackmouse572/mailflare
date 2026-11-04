@@ -79,7 +79,7 @@ export function MailboxSignatureForm() {
 					{saving ? t("common.saving") : t("settings.signature.save")}
 				</Button>
 				{!canManage && <p className="text-sm text-neutral-500">{t("settings.signature.needFullAccess")}</p>}
-				{status && <p className="text-sm text-neutral-500">{status}</p>}
+				{status && <p role="status" className="text-sm text-neutral-500">{status}</p>}
 			</div>
 		</form>
 	);

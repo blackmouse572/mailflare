@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { isUniqueConstraintError } from "@/lib/database-errors";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { bookingUsernameFromEmail } from "./utils";
@@ -19,7 +20,7 @@ export async function ensureBookingUsername(env: CloudflareEnv, userId: string, 
 			const [assigned] = await db.select({ bookingUsername: users.bookingUsername }).from(users).where(eq(users.id, userId)).limit(1);
 			if (assigned?.bookingUsername) return assigned.bookingUsername;
 		} catch (error) {
-			if (error instanceof Error && /UNIQUE constraint failed|users_booking_username_idx/i.test(error.message)) continue;
+			if (isUniqueConstraintError(error)) continue;
 			throw error;
 		}
 	}

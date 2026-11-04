@@ -18,6 +18,7 @@ export function createEmptyFolderCounts(): MessageCounts["folders"] {
 		starred: { total: 0, unread: 0 },
 		snoozed: { total: 0, unread: 0 },
 		sent: { total: 0, unread: 0 },
+		scheduled: { total: 0, unread: 0 },
 		drafts: { total: 0, unread: 0 },
 		archived: { total: 0, unread: 0 },
 		spam: { total: 0, unread: 0 },

@@ -36,6 +36,9 @@ const METHODS: Record<string, JmapMethodHandler> = {
 
 export const SUPPORTED_CAPABILITIES = new Set([CAPABILITY_CORE, CAPABILITY_MAIL, CAPABILITY_SUBMISSION]);
 
+/** Every IETF JMAP capability lives in this namespace, including optional extensions. */
+const JMAP_CAPABILITY_NAMESPACE = "urn:ietf:params:jmap:";
+
 /** JSON Pointer lookup with the JMAP `*` array-flattening extension. */
 function resolvePointer(value: unknown, path: string): unknown {
 	const segments = path.split("/").slice(1).map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
@@ -82,11 +85,40 @@ function resolveCreatedIds(args: Record<string, unknown>, createdIds: Record<str
 	return walk(args) as Record<string, unknown>;
 }
 
+/** Requests slower than this are logged with the shape of each call, so expensive client patterns show up in the Worker logs. */
+const SLOW_REQUEST_MS = 200;
+
+/** Calls that cannot change mailboxes or move the state, so later calls may reuse what they looked up. */
+const READ_ONLY_METHOD = /\/(get|query|changes|queryChanges)$|^Core\/echo$/;
+
+/** What a call asked for, without ids, filters' values or content. */
+function describeCall(name: string, args: Record<string, unknown>, ms: number) {
+	const size = (value: unknown) => (Array.isArray(value) ? value.length : value === null || value === undefined ? undefined : typeof value === "object" ? "ref" : value);
+	return {
+		name,
+		ms,
+		ids: size(args.ids ?? args["#ids"]),
+		properties: Array.isArray(args.properties) ? args.properties.length : undefined,
+		bodyProperties: Array.isArray(args.bodyProperties) ? args.bodyProperties.length : undefined,
+		fetchBodyValues: args.fetchTextBodyValues || args.fetchHTMLBodyValues || args.fetchAllBodyValues ? true : undefined,
+		limit: typeof args.limit === "number" ? args.limit : undefined,
+		position: typeof args.position === "number" ? args.position : undefined,
+		filter: args.filter && typeof args.filter === "object" ? Object.keys(args.filter as object).join(",") : undefined,
+		collapseThreads: args.collapseThreads === true ? true : undefined,
+		sinceState: typeof args.sinceState === "string" ? true : undefined,
+	};
+}
+
 export async function processRequest(ctx: JmapContext, request: JmapRequest): Promise<JmapResponse> {
 	const responses: JmapInvocation[] = [];
 	Object.assign(ctx.createdIds, request.createdIds ?? {});
+	const startedAt = Date.now();
+	const calls: ReturnType<typeof describeCall>[] = [];
 
 	for (const [name, rawArgs, callId] of request.methodCalls) {
+		const callStartedAt = Date.now();
+		const readOnly = READ_ONLY_METHOD.test(name);
+		if (!readOnly) ctx.memo = undefined;
 		const handler = METHODS[name];
 		if (!handler) {
 			responses.push(["error", { type: "unknownMethod" }, callId]);
@@ -98,7 +130,8 @@ export async function processRequest(ctx: JmapContext, request: JmapRequest): Pr
 				responses.push(["error", { type: "accountNotFound" }, callId]);
 				continue;
 			}
-			const result = await handler(ctx, args);
+			const result = await handler(readOnly ? ctx : { ...ctx, memo: null }, args);
+			calls.push(describeCall(name, args, Date.now() - callStartedAt));
 			if ("type" in result && typeof result.type === "string" && !("accountId" in result) && !("list" in result)) {
 				responses.push(["error", result, callId]);
 				continue;
@@ -114,12 +147,19 @@ export async function processRequest(ctx: JmapContext, request: JmapRequest): Pr
 				responses.push(["error", error.toMethodError(), callId]);
 			} else {
 				console.error(`JMAP ${name} failed`, error);
-				responses.push(["error", { type: "serverFail", description: error instanceof Error ? error.message : "Unexpected error" }, callId]);
+			// error.message can embed SQL text with bound parameters; the client
+			// only needs the logged detail, not the query.
+			responses.push(["error", { type: "serverFail", description: "The method failed on the server" }, callId]);
 			}
 		}
 	}
 
-	return { methodResponses: responses, createdIds: Object.keys(ctx.createdIds).length ? ctx.createdIds : undefined, sessionState: await sessionState(ctx) };
+	if (request.methodCalls.some(([name]) => !READ_ONLY_METHOD.test(name))) ctx.memo = undefined;
+	const stateStartedAt = Date.now();
+	const state = await sessionState(ctx);
+	const totalMs = Date.now() - startedAt;
+	if (totalMs >= SLOW_REQUEST_MS) console.log("JMAP slow request", JSON.stringify({ totalMs, stateMs: Date.now() - stateStartedAt, calls }));
+	return { methodResponses: responses, createdIds: Object.keys(ctx.createdIds).length ? ctx.createdIds : undefined, sessionState: state };
 }
 
 export async function sessionState(ctx: JmapContext): Promise<string> {
@@ -131,7 +171,13 @@ export function validateRequest(body: unknown): JmapRequest {
 	const request = body as Partial<JmapRequest>;
 	if (!Array.isArray(request.using) || !Array.isArray(request.methodCalls)) throw new JmapError("notRequest");
 	for (const capability of request.using) {
-		if (!SUPPORTED_CAPABILITIES.has(String(capability))) throw new JmapError("unknownCapability", String(capability));
+		const name = String(capability);
+		// A client may list optional IETF extension capabilities on every request, even ones it never
+		// calls into, and RFC 8620 §3.3 lets it do that. Ignoring an unimplemented extension only
+		// pushes the failure to its method calls, which already answer `unknownMethod`. Capability
+		// URNs from any other namespace are a real mismatch between the client and this server.
+		if (SUPPORTED_CAPABILITIES.has(name) || name.startsWith(JMAP_CAPABILITY_NAMESPACE)) continue;
+		throw new JmapError("unknownCapability", name);
 	}
 	if (request.methodCalls.length > LIMITS.maxCallsInRequest) throw new JmapError("limit", "Too many method calls", { limit: "maxCallsInRequest" });
 	for (const call of request.methodCalls) {

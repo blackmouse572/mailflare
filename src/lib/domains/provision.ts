@@ -35,11 +35,12 @@ export function isManualZone(zoneId: string | null | undefined): boolean {
 export async function provisionDomainOnCloudflare(
 	env: CloudflareEnv,
 	hostname: string,
-	options?: { enableRouting?: boolean; enableSending?: boolean; replaceMxRecords?: boolean },
+	options?: { enableRouting?: boolean; enableSending?: boolean; replaceMxRecords?: boolean; skipDns?: boolean },
 ): Promise<DomainProvisioningResult> {
 	const normalized = hostname.toLowerCase().trim();
-	if (!hasCloudflareCredentials(env)) {
-		// Nothing to provision: the operator points MX at this server themselves.
+	if (options?.skipDns || !hasCloudflareCredentials(env)) {
+		// Nothing to provision: the operator points MX at this server themselves,
+		// or chose to skip DNS for now.
 		return {
 			hostname: normalized,
 			zone: { id: MANUAL_ZONE_ID, name: normalized },

@@ -1,4 +1,4 @@
-import { Archive, Clock, MailOpen, Send, ShieldAlert, Star, Trash2 } from "lucide-react";
+import { Archive, Clock, CalendarClock, MailOpen, Send, ShieldAlert, Star, Trash2 } from "@/components/icons";
 import type { MessageFolderConfig } from "./types";
 
 export const inboxFolderConfig: MessageFolderConfig = {
@@ -44,6 +44,17 @@ export const sentFolderConfig: MessageFolderConfig = {
 	hrefPrefix: "/sent",
 	icon: Send,
 	// headerIcons: [MailOpen, Clock],
+	badgeVariant: "outline",
+};
+
+export const scheduledFolderConfig: MessageFolderConfig = {
+	folder: "scheduled",
+	title: "Scheduled",
+	titleKey: "navigation.scheduled",
+	emptyTextKey: "folder.empty.scheduled",
+	emptyText: "No scheduled emails",
+	hrefPrefix: "/scheduled",
+	icon: CalendarClock,
 	badgeVariant: "outline",
 };
 

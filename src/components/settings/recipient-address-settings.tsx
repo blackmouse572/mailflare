@@ -33,7 +33,7 @@ export function RecipientAddressSettings() {
 					aria-label={t("settings.recipient.title")}
 				/>
 			</label>
-			{(saveError || error) && <p className="mt-2 px-4 text-sm text-red-600">{saveError || error}</p>}
+			{(saveError || error) && <p role="alert" className="mt-2 px-4 text-sm text-red-600">{saveError || error}</p>}
 		</div>
 	);
 }

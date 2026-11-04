@@ -40,6 +40,11 @@ export function getMessageQueryParams(
 		params.set("status", "sent");
 	}
 
+	if (folder === "scheduled") {
+		params.set("direction", "outbound");
+		params.set("scheduled", "true");
+	}
+
 	if (folder === "drafts") {
 		params.set("direction", "outbound");
 		params.set("status", "draft");

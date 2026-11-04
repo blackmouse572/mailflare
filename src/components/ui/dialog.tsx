@@ -1,7 +1,7 @@
 "use client";
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { X } from "@/components/icons";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/components/language-provider";
@@ -14,12 +14,14 @@ export function DialogContent({
 	className,
 	children,
 	closeLabel,
+	overlayClassName,
+	closeClassName,
 	...props
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { closeLabel?: string }) {
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { closeLabel?: string; overlayClassName?: string; closeClassName?: string }) {
 	const { t } = useLanguage();
 	return (
 		<DialogPrimitive.Portal>
-			<DialogPrimitive.Overlay className="dialog-overlay fixed inset-0 z-50 bg-black/35" />
+			<DialogPrimitive.Overlay className={cn("dialog-overlay fixed inset-0 z-50 bg-black/35", overlayClassName)} />
 			<DialogPrimitive.Content
 				className={cn(
 					"dialog-content fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl",
@@ -28,7 +30,7 @@ export function DialogContent({
 				{...props}
 			>
 				{children}
-				<DialogPrimitive.Close className="absolute right-4 top-4 rounded-full p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
+				<DialogPrimitive.Close className={cn("absolute right-4 top-4 rounded-full p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900", closeClassName)}>
 					<X className="h-4 w-4" />
 					<span className="sr-only">{closeLabel ?? t("navigation.close")}</span>
 				</DialogPrimitive.Close>

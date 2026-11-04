@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { KeyRound } from "lucide-react";
+import { KeyRound } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { TurnstileField } from "@/components/auth/turnstile";
@@ -60,7 +60,7 @@ export function ForgotPasswordClient() {
 						<Input id="email" name="email" type="email" autoComplete="email" required autoFocus />
 					</div>
 					{error && (
-						<p className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>
+						<p role="alert" className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p>
 					)}
 					<TurnstileField resetSignal={turnstileReset} />
 					<Button type="submit" className="h-11 w-full rounded-full px-6 active:scale-[0.98]" disabled={loading}>

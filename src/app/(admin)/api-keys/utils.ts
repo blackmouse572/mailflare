@@ -5,6 +5,7 @@ export const ADMIN_KEY_PERMISSIONS: { value: AdminApiKeyScope; labelKey: Transla
 	{ value: "domains", labelKey: "adminKeys.perm.domains", descriptionKey: "adminKeys.perm.domainsDesc" },
 	{ value: "accounts", labelKey: "adminKeys.perm.accounts", descriptionKey: "adminKeys.perm.accountsDesc" },
 	{ value: "mailboxes", labelKey: "adminKeys.perm.mailboxes", descriptionKey: "adminKeys.perm.mailboxesDesc" },
+	{ value: "storage", labelKey: "adminKeys.perm.storage", descriptionKey: "adminKeys.perm.storageDesc" },
 ];
 
 export function parseApiKeyScopes(scopes: string): string[] {

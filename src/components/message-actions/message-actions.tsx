@@ -1,11 +1,13 @@
 "use client";
 
-import { createElement, useState, useMemo, useCallback } from "react";
+import { createElement, useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Ban, BellOff, Clock, FileCode2, Forward, Mail, MailOpen, MoreVertical, Reply, ReplyAll, ShieldAlert, Trash2 } from "lucide-react";
+import { Archive, Ban, BellOff, Clock, FileCode2, Forward, Mail, MailOpen, MoreVertical, Reply, ReplyAll, ShieldAlert, Trash2 } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { useCompose } from "@/components/compose/compose-context";
 import { MessageSourceDialog } from "@/components/messages/message-source-dialog";
+import { useDismissible } from "@/components/use-dismissible";
+import { useMessageListVisibility } from "@/components/messages/message-list-visibility";
 import { MessageSnoozeDialog } from "./message-snooze-dialog";
 import { useIsMobile } from "@/components/sidebar-mobile-utils";
 import { useHotkeys, useShortcuts } from "@/components/shortcuts";
@@ -13,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { BulkMessageAction } from "@/app/api/messages/bulk/types";
 import type { MessageActionsProps, ReplyMode } from "./types";
-import { getPermanentDeleteConfirmText, supportsPermanentDelete } from "@/lib/messages/permanent-delete-utils";
+import { getPermanentDeleteConfirmText, PartialDeleteError, supportsPermanentDelete } from "@/lib/messages/permanent-delete-utils";
 import {
 	confirmTrashWithoutUnsubscribe,
 	blockMessageContact,
@@ -50,12 +52,15 @@ export function MessageActions({
 	const router = useRouter();
 	const isMobile = useIsMobile();
 	const { openDraftComposer } = useCompose();
+	const { backHref: listHref } = useMessageListVisibility();
 	const { shortcutsEnabled } = useShortcuts();
 	const [pendingAction, setPendingAction] = useState<
 		BulkMessageAction | "unsubscribe" | ReplyMode | "forward" | "block" | null
 	>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [moreOpen, setMoreOpen] = useState(false);
+	const moreRef = useRef<HTMLDivElement>(null);
+	useDismissible(moreOpen, () => setMoreOpen(false), moreRef);
 	const [sourceOpen, setSourceOpen] = useState(false);
 	const [snoozeOpen, setSnoozeOpen] = useState(false);
 
@@ -65,7 +70,7 @@ export function MessageActions({
 		setError(null);
 		try {
 			await runSingleMessageAction(messageId, action);
-			const redirect = getMessageActionRedirect(action, direction);
+			const redirect = getMessageActionRedirect(action, listHref);
 			if (redirect) router.push(redirect);
 			router.refresh();
 		} catch {
@@ -73,7 +78,7 @@ export function MessageActions({
 		} finally {
 			setPendingAction(null);
 		}
-	}, [messageId, direction, router, t]);
+	}, [messageId, listHref, router, t]);
 
 	// In Trash and Spam the delete button removes the message for good instead of
 	// being a no-op, after the user confirms.
@@ -87,8 +92,8 @@ export function MessageActions({
 			await runSingleMessageAction(messageId, "delete");
 			router.push(getMessageBackHref(direction, status));
 			router.refresh();
-		} catch {
-			setError(t("actions.error.delete"));
+		} catch (deleteError) {
+			setError(deleteError instanceof PartialDeleteError ? t("actions.error.deleteSkipped") : t("actions.error.delete"));
 			setPendingAction(null);
 		}
 	}, [messageId, direction, status, router, t]);
@@ -100,6 +105,7 @@ export function MessageActions({
 		fromAddr: senderAddress,
 		toAddr: "",
 		ccAddr: null,
+		replyTo: null,
 		providerMessageId: null,
 		references: null,
 		threadId: null,
@@ -237,7 +243,7 @@ export function MessageActions({
 		try {
 			await blockMessageContact({ mailboxId, senderAddress });
 			await runSingleMessageAction(messageId, "trash");
-			router.push("/trash");
+			router.push(listHref);
 			router.refresh();
 		} catch (blockError) {
 			setError(blockError instanceof Error ? blockError.message : t("message.error.block"));
@@ -252,20 +258,10 @@ export function MessageActions({
 
 	return (
 		<div className="flex flex-wrap items-center gap-3 text-neutral-600 flex-1 min-w-0">
-			{error && <span className="text-xs text-red-600">{error}</span>}
+			{error && <span role="alert" className="text-xs text-red-600">{error}</span>}
 
 			{isMobile && (
 				<>
-					<Button
-						type="button"
-						variant="ghost"
-						size="roundedSM"
-						aria-label={t("message.reply")}
-						disabled={disabled}
-						onClick={() => handleReply("reply")}
-					>
-						<Reply size={iconSize} />
-					</Button>
 					<Button
 						variant="ghost"
 						size="roundedSM"
@@ -379,7 +375,7 @@ export function MessageActions({
 			</Tooltip>
 				</>
 			)}
-			<div className="relative">
+			<div ref={moreRef} className="relative">
 				<Tooltip label={t("common.moreActions")}>
 					<Button
 						type="button"
@@ -402,6 +398,10 @@ export function MessageActions({
 								<button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 disabled:text-neutral-400" disabled={status === "archived"} onClick={() => void runAction("archive")}>
 									<Archive className="h-4 w-4" />
 									{t("common.archive")}
+								</button>
+								<button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 disabled:text-neutral-400" onClick={() => { setMoreOpen(false); void handleReply("reply"); }}>
+									<Reply className="h-4 w-4" />
+									{t("message.reply")}
 								</button>
 								{canReplyAll && (
 									<button type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 disabled:text-neutral-400" onClick={() => { setMoreOpen(false); void handleReply("replyAll"); }}>

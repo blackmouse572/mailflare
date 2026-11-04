@@ -35,6 +35,7 @@ export function parsePaymugLicenseResponse(value: unknown): PaymugLicenseRespons
 		features: Array.isArray(response.features)
 			? response.features.filter((feature): feature is string => typeof feature === "string")
 			: undefined,
+		seatLimit: response.seatLimit === null ? null : typeof response.seatLimit === "number" && Number.isInteger(response.seatLimit) && response.seatLimit >= 0 ? response.seatLimit : undefined,
 	};
 }
 

@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 	if (!user || !verifyPassword(parsed.data.password, user.passwordHash)) {
 		return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 	}
-	if (user.disabled) {
+	if (user.disabled || user.deletedAt) {
 		return NextResponse.json({ error: "Account disabled" }, { status: 403 });
 	}
 

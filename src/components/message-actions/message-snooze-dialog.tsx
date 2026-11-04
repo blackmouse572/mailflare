@@ -39,7 +39,7 @@ export function MessageSnoozeDialog({ messageId, open, onOpenChange }: MessageSn
 				<div className="space-y-4">
 					<div className="grid gap-2 sm:grid-cols-3">
 						{snoozePresets.map((preset) => (
-							<Button key={preset.labelKey} type="button" variant="outline" size="sm" onClick={() => setSnoozedUntil(preset.value)}>
+							<Button key={preset.labelKey} type="button" variant="outline" size="sm" aria-pressed={snoozedUntil === preset.value} onClick={() => setSnoozedUntil(preset.value)}>
 								{t(preset.labelKey)}
 							</Button>
 						))}
@@ -48,7 +48,7 @@ export function MessageSnoozeDialog({ messageId, open, onOpenChange }: MessageSn
 						<label htmlFor={`header-snooze-until-${messageId}`} className="text-sm font-medium text-neutral-700">{t("snooze.selectDateTime", { timeZone: getUserTimeZone() })}</label>
 						<Input id={`header-snooze-until-${messageId}`} type="datetime-local" value={snoozedUntil} onChange={(event) => setSnoozedUntil(event.target.value)} />
 					</div>
-					{error && <p className="text-sm text-red-600">{error}</p>}
+					{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 					<Button type="button" onClick={() => void handleSnooze()} disabled={snoozing}>
 						{snoozing ? t("common.snoozing") : t("common.snooze")}
 					</Button>

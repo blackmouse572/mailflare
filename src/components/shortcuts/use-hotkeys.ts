@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { ShortcutDefinition } from "./types";
+import { findSequenceMatch, hasCommandModifier, isModifierKey } from "./use-hotkeys-utils";
 
 interface UseHotkeysOptions {
   enabled?: boolean;
@@ -92,6 +93,15 @@ export function useHotkeys(
         return;
       }
 
+      if (isModifierKey(key)) return;
+
+      // Cmd/Ctrl/Alt combos belong to the browser and the OS. Sequences and
+      // bare-key shortcuts are matched on the bare key, so buffering "c" out of
+      // Cmd+C would fire the compose shortcut instead of copying.
+      if (hasCommandModifier(e)) return;
+
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+
       // Handle sequence buffer
       sequenceBufferRef.current.push(key);
 
@@ -103,10 +113,7 @@ export function useHotkeys(
         sequenceBufferRef.current = [];
       }, 800);
 
-      const currentSequence = sequenceBufferRef.current.join(" ");
-      const sequenceMatch = shortcutsRef.current.find(
-        (s) => s.key.toLowerCase() === currentSequence
-      );
+      const sequenceMatch = findSequenceMatch(sequenceBufferRef.current, shortcutsRef.current);
 
       if (sequenceMatch) {
         e.preventDefault();

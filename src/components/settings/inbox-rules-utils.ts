@@ -1,5 +1,6 @@
 import { defaultTranslator, type Translator } from "@/lib/i18n/utils";
 import { authFetch } from "@/lib/auth/client";
+import { getMailboxFolders } from "@/lib/folders/client";
 import type { InboxRule, InboxRuleInput, InboxRulesResponse, RuleFoldersResponse } from "./inbox-rules-types";
 
 export async function fetchInboxRules(mailboxId: string): Promise<InboxRulesResponse> {
@@ -9,9 +10,7 @@ export async function fetchInboxRules(mailboxId: string): Promise<InboxRulesResp
 }
 
 export async function fetchRuleFolders(mailboxId: string): Promise<RuleFoldersResponse> {
-	const params = new URLSearchParams({ mailboxId });
-	const response = await authFetch(`/api/folders?${params.toString()}`);
-	return (await response.json()) as RuleFoldersResponse;
+	return getMailboxFolders<RuleFoldersResponse>(mailboxId);
 }
 
 export async function createInboxRule(input: InboxRuleInput) {
@@ -54,6 +53,6 @@ export function getRuleOperatorLabel(operator: string, t: Translator = defaultTr
 }
 
 export function getInboxRuleDestination(rule: Pick<InboxRule, "action" | "folderId">): string {
-	if (rule.action === "spam" || rule.action === "trash") return rule.action;
+	if (rule.action === "spam" || rule.action === "trash" || rule.action === "forward") return rule.action;
 	return rule.folderId ? `folder:${rule.folderId}` : "";
 }

@@ -2,14 +2,14 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { mailboxAccess, users } from "@/db/schema";
-import { requireTeamAdmin } from "@/app/api/accounts/utils";
+import { requireTeamSharingAdmin } from "@/app/api/accounts/utils";
 import { newId } from "@/lib/ids";
 import { mailboxAccessSchema } from "@/lib/validators";
 import type { MailboxAccessRouteParams } from "./types";
 import { getSharedMailboxForAdmin } from "./utils";
 
 export async function GET(request: Request, { params }: MailboxAccessRouteParams) {
-	const access = await requireTeamAdmin(request);
+	const access = await requireTeamSharingAdmin(request);
 	if (access.error) return access.error;
 	const { id } = await params;
 	const db = getDb(access.env);
@@ -39,7 +39,7 @@ export async function GET(request: Request, { params }: MailboxAccessRouteParams
 }
 
 export async function POST(request: Request, { params }: MailboxAccessRouteParams) {
-	const access = await requireTeamAdmin(request);
+	const access = await requireTeamSharingAdmin(request);
 	if (access.error) return access.error;
 	const parsed = mailboxAccessSchema.safeParse(await request.json());
 	if (!parsed.success) return NextResponse.json({ error: "Choose a valid account" }, { status: 400 });
@@ -71,7 +71,7 @@ export async function POST(request: Request, { params }: MailboxAccessRouteParam
 }
 
 export async function DELETE(request: Request, { params }: MailboxAccessRouteParams) {
-	const access = await requireTeamAdmin(request);
+	const access = await requireTeamSharingAdmin(request);
 	if (access.error) return access.error;
 	const { id } = await params;
 	const userId = new URL(request.url).searchParams.get("userId");

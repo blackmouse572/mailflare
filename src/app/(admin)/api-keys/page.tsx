@@ -3,7 +3,7 @@
 import { mobilePrimaryActionClass } from "@/components/page-header-utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { Copy, KeyRound, Plus, Trash2 } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -117,7 +117,7 @@ export default function ApiKeysPage() {
 							</div>
 						</fieldset>
 						{create.isError && (
-							<p className="text-sm text-red-600">{(create.error as Error).message}</p>
+							<p role="alert" className="text-sm text-red-600">{(create.error as Error).message}</p>
 						)}
 						<Button
 							onClick={() => create.mutate()}

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { messageAttachments, messages } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { LIMITS } from "./constants";
@@ -67,7 +67,7 @@ export async function readBlob(ctx: JmapContext, blobId: string): Promise<{ body
 			.select({ r2Key: messageAttachments.r2Key, filename: messageAttachments.filename, type: messageAttachments.contentType, size: messageAttachments.size, mailboxId: messages.mailboxId })
 			.from(messageAttachments)
 			.innerJoin(messages, eq(messageAttachments.messageId, messages.id))
-			.where(eq(messageAttachments.id, decoded.id))
+			.where(and(eq(messageAttachments.id, decoded.id), isNull(messageAttachments.trashedAt)))
 			.limit(1);
 		if (!row || !row.mailboxId || !accessible.has(row.mailboxId)) return null;
 		const object = await ctx.env.BUCKET.get(row.r2Key);
