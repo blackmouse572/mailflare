@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { mailboxes, users } from "@/db/schema";
 import { requireUser } from "@/lib/auth/cookies";
 import { getEnv } from "@/lib/cloudflare";
+import { getMailboxAccountError } from "@/lib/mailboxes/account-from-mailbox-utils";
 import { getMailboxSettingsAccess } from "@/lib/mailboxes/settings-access";
 import { ensureMailboxDomainRouting, removeMailboxDomainRouting } from "@/lib/mailboxes/domain-addresses";
 import { isPrimaryMailbox, tracksAccountIdentity } from "@/lib/profile/identity-utils";
@@ -37,6 +38,7 @@ export async function GET(request: Request, { params }: MailboxRouteParams) {
 			permission: access.permission,
 			canManageSharing: user.role === "admin" && mailbox.type === "shared" && mailbox.userId === user.id,
 			isPrimary: isPrimaryMailbox(mailbox, ownerEmail),
+			canCreateAccount: user.role === "admin" && getMailboxAccountError(mailbox, user.id) === null,
 		},
 	});
 }
@@ -109,6 +111,7 @@ export async function PATCH(request: Request, { params }: MailboxRouteParams) {
 			permission: access.permission,
 			canManageSharing: user.role === "admin" && mailbox!.type === "shared" && mailbox!.userId === user.id,
 			isPrimary: isPrimaryMailbox(mailbox!, ownerEmail),
+			canCreateAccount: user.role === "admin" && getMailboxAccountError(mailbox!, user.id) === null,
 		},
 	});
 }

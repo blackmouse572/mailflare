@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Save, Trash2, UserPlus } from "@/components/icons";
+import { AtSign, KeyRound, Save, Trash2, UserPlus } from "@/components/icons";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  createMailboxAccount,
   createMailboxAlias,
   deleteMailbox,
   deleteMailboxAlias,
@@ -44,6 +45,8 @@ export default function MailboxSettingsPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [aliasLocalPart, setAliasLocalPart] = useState("");
   const [aliasDomainId, setAliasDomainId] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [accountRole, setAccountRole] = useState<"user" | "admin">("user");
 
   const mailbox = useQuery({
     queryKey: ["mailbox", mailboxId],
@@ -113,6 +116,18 @@ export default function MailboxSettingsPage() {
   const removeMember = useMutation({
     mutationFn: (userId: string) => revokeSharedInboxAccess(mailboxId, userId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mailbox", mailboxId, "access"] }),
+  });
+
+  const createAccount = useMutation({
+    mutationFn: () => createMailboxAccount(mailboxId, { password: accountPassword, role: accountRole }),
+    onSuccess: async () => {
+      setAccountPassword("");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["mailbox", mailboxId] }),
+        qc.invalidateQueries({ queryKey: ["mailboxes"] }),
+        qc.invalidateQueries({ queryKey: ["accounts"] }),
+      ]);
+    },
   });
 
   const address = mailbox.data ? getMailboxAddress(mailbox.data) : "";
@@ -372,6 +387,66 @@ export default function MailboxSettingsPage() {
               <p className="text-sm text-red-600">
                 {addMember.error instanceof Error ? addMember.error.message : t("mailbox.accountAddFailed")}
               </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {(mailbox.data?.canCreateAccount || createAccount.isSuccess) && (
+        <Card className="rounded-3xl border-0 bg-white p-6">
+          <CardHeader className="py-0">
+            <CardTitle>{t("mailbox.signIn.title")}</CardTitle>
+            <CardDescription>{t("mailbox.signIn.description")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            {createAccount.isSuccess ? (
+              <p className="text-sm text-green-700">
+                {t("mailbox.signIn.created", { email: createAccount.data.email })}
+              </p>
+            ) : (
+              <form
+                className="space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  createAccount.mutate();
+                }}
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="accountPassword">{t("common.password")}</Label>
+                  <Input
+                    id="accountPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={accountPassword}
+                    onChange={(event) => setAccountPassword(event.target.value)}
+                    disabled={createAccount.isPending}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="accountRole">{t("accounts.role")}</Label>
+                  <Select
+                    id="accountRole"
+                    value={accountRole}
+                    onChange={(event) => setAccountRole(event.target.value as "user" | "admin")}
+                    className="h-10 text-sm"
+                    disabled={createAccount.isPending}
+                  >
+                    <option value="user">{t("accounts.roleUser")}</option>
+                    <option value="admin">{t("accounts.roleAdmin")}</option>
+                  </Select>
+                </div>
+                {createAccount.isError && (
+                  <p className="text-sm text-red-600">
+                    {createAccount.error instanceof Error
+                      ? createAccount.error.message
+                      : t("accounts.createFailed")}
+                  </p>
+                )}
+                <Button type="submit" disabled={accountPassword.length < 8 || createAccount.isPending}>
+                  <KeyRound className="h-4 w-4" />
+                  {createAccount.isPending ? t("accounts.creating") : t("accounts.create")}
+                </Button>
+              </form>
             )}
           </CardContent>
         </Card>
