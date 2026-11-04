@@ -13,6 +13,7 @@ export type MailboxDetail = {
 	createdAt: string;
 	hostname: string;
 	isPrimary?: boolean;
+	canCreateAccount?: boolean;
 };
 
 export type MailboxDetailResponse = {
