@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { getDb } from "@/db";
-import { messages, users } from "@/db/schema";
+import { messages, outboundJobs, users } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { buildSnippet, parseRawMime } from "@/lib/email/parse";
+import { boundParsedEmail } from "@/lib/email/inbound-limits";
 import { resolveInboundAddress, resolveInboxRuleDestination } from "@/lib/email/routing";
 import { dispatchWebhooks } from "@/lib/email/webhooks";
 import { getMessageContactNames, upsertContactFromAddress } from "@/lib/contacts/service";
@@ -17,6 +18,9 @@ import { resolveThreadId } from "@/lib/email/threading";
 import { normalizeMessageId } from "@/lib/email/thread-lookup";
 import type { SessionUser } from "@/lib/auth/types";
 import { analyzeSpam } from "@/lib/spam/engine";
+import { ExternalSpamIntelligenceProvider } from "@/lib/spam/providers/external";
+import { getSpamIntelligenceConfig } from "@/lib/spam/settings";
+import type { ProviderVerdicts } from "@/lib/spam/types";
 import { getReputationKeys } from "@/lib/spam/analyzers/reputation";
 import { recordReputationObservation } from "@/lib/spam/repository";
 import {
@@ -30,8 +34,11 @@ export type InboundQueueMessage = {
 	to: string;
 	rawR2Key: string;
 	headers?: Record<string, string>;
+	verdicts?: ProviderVerdicts;
+	senderIp?: string;
 };
 
+/** True when the address is a mailbox or alias owned by the user, so their own mail never counts as unread. */
 export async function processInboundMessage(
 	env: CloudflareEnv,
 	payload: InboundQueueMessage,
@@ -41,13 +48,18 @@ export async function processInboundMessage(
 	// do in the Worker email handler.
 	const decision = await resolveInboundAddress(db, payload.to, payload.from);
 
+	// Nothing references the raw object on these paths, so keep it from piling up in storage.
+	const dropRaw = () => env.BUCKET.delete(payload.rawR2Key).catch((error) => console.error(`Raw cleanup failed for ${payload.rawR2Key}`, error));
+
 	if (!decision) {
 		console.warn(`No routing for inbound address: ${payload.to}`);
+		await dropRaw();
 		return;
 	}
 
 	if (decision.action === "reject") {
 		console.warn(`Rejected inbound: ${payload.to}`);
+		await dropRaw();
 		return;
 	}
 
@@ -55,10 +67,14 @@ export async function processInboundMessage(
 	// destination mailbox there is nothing to store.
 	if (decision.action === "forward" && !decision.keepCopy) {
 		console.info(`Forward ${payload.to} -> ${decision.forwardTo}`);
+		await dropRaw();
 		return;
 	}
 
-	if (!decision.mailbox) return;
+	if (!decision.mailbox) {
+		await dropRaw();
+		return;
+	}
 	const [stored] = await db.select({ id: messages.id }).from(messages).where(and(
 		eq(messages.mailboxId, decision.mailbox.mailboxId),
 		eq(messages.rawR2Key, payload.rawR2Key),
@@ -78,7 +94,15 @@ export async function processInboundMessage(
 	}
 
 	const buffer = await raw.arrayBuffer();
-	const parsed = await parseRawMime(buffer);
+	let parsed: Awaited<ReturnType<typeof parseRawMime>>;
+	try {
+		parsed = boundParsedEmail(await parseRawMime(buffer));
+	} catch (error) {
+		// Deterministic: a retry would repeat the same expensive parse, so drop the message.
+		console.warn(`Inbound MIME rejected for ${payload.to}`, error);
+		await env.BUCKET.delete(payload.rawR2Key);
+		return;
+	}
 	const attachmentLimitReason = inboundAttachmentLimitReason(parsed.attachments);
 	if (attachmentLimitReason) {
 		console.warn(`Inbound attachment limit reached for ${payload.to}: ${attachmentLimitReason}`);
@@ -104,12 +128,17 @@ export async function processInboundMessage(
 	const [owner] = await db.select({ enabled: users.spamProtectionEnabled }).from(users).where(eq(users.id, decision.mailbox.userId)).limit(1);
 	if (owner?.enabled !== false) {
 		try {
+			const intelligence = await getSpamIntelligenceConfig(env);
 			spamAnalysis = await analyzeSpam(db, {
 				mailboxId: decision.mailbox.mailboxId,
 				userId: decision.mailbox.userId,
 				envelopeFrom: payload.from,
 				headers: payload.headers,
+				verdicts: payload.verdicts,
+				senderIp: payload.senderIp,
+				brands: intelligence.brands,
 				message: parsed,
+				intelligenceProvider: new ExternalSpamIntelligenceProvider(intelligence, env.BUCKET),
 			});
 		} catch (error) {
 			spamAnalysisError = error instanceof Error ? error.message.slice(0, 300) : "Spam analysis failed";
@@ -128,10 +157,16 @@ export async function processInboundMessage(
 		? "spam"
 		: destination.status;
 	const folderId = status === "spam" ? null : destination.folderId;
+	// A contact the database cannot hold (e.g. an over-long address) must not lose the mail.
 	const contact = await upsertContactFromAddress(env, {
 		userId: decision.mailbox.userId,
 		address: fromAddr,
 		source: "inbound",
+		// Spam senders are strangers at best; do not announce them to Gravatar.
+		lookupAvatar: status !== "spam" && status !== "trash",
+	}).catch((error) => {
+		console.error(`Contact upsert failed for ${messageId}`, error);
+		return null;
 	});
 	let threadId: string;
 	try {
@@ -140,6 +175,7 @@ export async function processInboundMessage(
 			messageId: parsed.messageId,
 			inReplyTo: parsed.inReplyTo,
 			references: parsed.references,
+			senderAddress: getEmailAddress(fromAddr) || null,
 		});
 	} catch (error) {
 		console.error("Inbound thread lookup failed", {
@@ -162,12 +198,15 @@ export async function processInboundMessage(
 			fromAddr,
 			toAddr,
 			ccAddr: parsed.ccAddr,
+			replyTo: parsed.replyTo,
 			subject: parsed.subject,
 			snippet,
 			textBody: parsed.text,
 			htmlBody: parsed.html,
 			rawR2Key: payload.rawR2Key,
 			status,
+			// The From header is forgeable, so mail "from yourself" is not treated as already read.
+			read: false,
 			threadId,
 			inReplyTo: parsed.inReplyTo,
 			references: parsed.references.length ? parsed.references.join(" ") : null,
@@ -213,7 +252,9 @@ export async function processInboundMessage(
 		}
 	}
 
-	if (status !== "spam") {
+	if (status === "spam" || status === "trash") {
+		console.info(`No notification for ${messageId}: filed as ${status}`);
+	} else {
 		const notificationUserIds = await getMailboxNotificationUserIds(
 			env,
 			decision.mailbox.mailboxId,
@@ -228,16 +269,19 @@ export async function processInboundMessage(
 			subject: parsed.subject,
 		});
 	}
-	await dispatchWebhooks(env, decision.mailbox.userId, "message.inbound", {
-		messageId,
-		from: fromAddr,
-		to: payload.to,
-		cc: parsed.ccAddr ?? undefined,
-		subject: parsed.subject,
-		threadId,
-		spamScore: spamAnalysis?.score,
-		spamVerdict: spamAnalysis?.verdict,
-	});
+	// Spam and blocked mail carry an unauthenticated From; consumers acting on it would be fooled.
+	if (status !== "spam" && status !== "trash") {
+		await dispatchWebhooks(env, decision.mailbox.userId, "message.inbound", {
+			messageId,
+			from: fromAddr,
+			to: payload.to,
+			cc: parsed.ccAddr ?? undefined,
+			subject: parsed.subject,
+			threadId,
+			spamScore: spamAnalysis?.score,
+			spamVerdict: spamAnalysis?.verdict,
+		});
+	}
 	try {
 		await scheduleAutoDraft(env, { mailboxId: decision.mailbox.mailboxId, sourceMessageId: messageId, ownerUserId: decision.mailbox.userId, sender: fromAddr, headers: payload.headers, status, folderId, spamVerdict: spamAnalysis?.verdict, spamAnalysisError });
 	} catch (error) { console.error("Auto-draft scheduling failed", error); }
@@ -268,7 +312,20 @@ export async function getMessageWithBody(env: CloudflareEnv, userId: string, mes
 	const contactNames = await getMessageContactNames(env, userId, message.fromAddr, message.toAddr);
 	const attachments = await listMessageAttachments(env, messageId);
 	const unsubscribeUrl = await getUnsubscribeUrlFromRawR2Key(env, message.rawR2Key);
-	return { message: { ...message, ...contactNames }, body: message, attachments, unsubscribeUrl };
+	const [scheduledJob] = message.direction === "outbound" && message.status === "queued"
+		? await db
+			.select({ scheduledAt: outboundJobs.scheduledAt })
+			.from(outboundJobs)
+			.where(and(eq(outboundJobs.messageId, messageId), eq(outboundJobs.status, "queued"), isNotNull(outboundJobs.scheduledAt)))
+			.limit(1)
+		: [];
+	return {
+		message: { ...message, ...contactNames },
+		body: message,
+		attachments,
+		unsubscribeUrl,
+		scheduledAt: scheduledJob?.scheduledAt?.toISOString() ?? null,
+	};
 }
 
 export async function getMessageWithBodyForUser(env: CloudflareEnv, user: SessionUser, messageId: string) {

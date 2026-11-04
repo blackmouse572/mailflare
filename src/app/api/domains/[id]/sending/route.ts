@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth/cookies";
 import { canManageDomains } from "@/lib/auth/admin";
 import { hasValidSessionMutationOrigin } from "@/lib/auth/origin";
 import { getDomainForUser } from "@/lib/domains/service";
+import { adoptCloudflareZone } from "@/lib/domains/adopt-zone";
 import { isManualZone } from "@/lib/domains/provision";
 import { findCloudflareSending, removeCloudflareSending } from "@/lib/domains/cloudflare-sending";
 import { getAwsConfig } from "@/lib/aws/config";
@@ -32,11 +33,17 @@ export async function PUT(request: Request, { params }: Params) {
 	const user = await requireUser(env, request);
 	if (!canManageDomains(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 	if (!hasValidSessionMutationOrigin(request)) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
-	const domain = await getDomainForUser(env, user.id, id);
+	let domain = await getDomainForUser(env, user.id, id);
 	if (!domain) return NextResponse.json({ error: "Not found" }, { status: 404 });
 	const parsed = schema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) return NextResponse.json({ error: "Unknown sending provider" }, { status: 400 });
 	const { provider, replaceMx } = parsed.data;
+
+	if (provider === "cloudflare" && isManualZone(domain.zoneId)) {
+		// DNS was skipped when the domain was added: attach the real zone before enabling.
+		try { domain = await adoptCloudflareZone(env, domain); }
+		catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not find the Cloudflare zone" }, { status: 502 }); }
+	}
 
 	await getDb(env)
 		.update(domains)

@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 		requests: sql<number>`count(*)`,
 		inputTokens: sql<number>`coalesce(sum(${aiUsage.inputTokens}), 0)`,
 		outputTokens: sql<number>`coalesce(sum(${aiUsage.outputTokens}), 0)`,
-	}).from(aiUsage).where(and(gte(aiUsage.createdAt, days[0].start), lt(aiUsage.createdAt, days[days.length - 1].end))).groupBy(sql`"date"`).orderBy(sql`"date"`);
+	}).from(aiUsage).where(and(gte(aiUsage.createdAt, days[0].start), lt(aiUsage.createdAt, days[days.length - 1].end))).groupBy(sql`1`).orderBy(sql`1`);
 	const byDate = new Map(dailyRows.map((row) => [row.date, row]));
 	const daily = days.map(({ date }) => byDate.get(date) ?? { date, requests: 0, inputTokens: 0, outputTokens: 0 });
 	const rows = await db.select().from(aiUsage).orderBy(desc(aiUsage.createdAt), desc(aiUsage.id)).limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE);

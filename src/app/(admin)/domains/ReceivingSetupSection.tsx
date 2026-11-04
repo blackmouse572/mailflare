@@ -84,7 +84,7 @@ export default function ReceivingSetupSection({ domain, onChange, busy, message,
 				})}
 			</ul>
 			{domain.receivingProvider === "none" && <p className="mt-2 text-xs text-neutral-500">{t("domains.noReceiving")}</p>}
-			{message && <p className="mt-2 text-xs text-red-600">{message}</p>}
+			{message && <p role="alert" className="mt-2 text-xs text-red-600">{message}</p>}
 			{error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
 		</section>
 	);

@@ -40,3 +40,7 @@ export function formatDateTimeLocal(value: Date): string {
 export function parseDateTimeLocal(value: string): Date | null {
 	return parseUserDateTimeLocal(value);
 }
+
+export function isPastSchedule(value: Date, now = new Date()): boolean {
+	return value.getTime() < now.getTime() - (now.getTime() % 60_000);
+}

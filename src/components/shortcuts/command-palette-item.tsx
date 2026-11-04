@@ -4,6 +4,7 @@ import React from "react";
 import type { CommandItem } from "./types";
 
 interface CommandPaletteItemProps {
+  id: string;
   item: CommandItem;
   isActive: boolean;
   onSelect: () => void;
@@ -11,6 +12,7 @@ interface CommandPaletteItemProps {
 }
 
 export function CommandPaletteItem({
+  id,
   item,
   isActive,
   onSelect,
@@ -20,7 +22,11 @@ export function CommandPaletteItem({
 
   return (
     <button
+      id={id}
       type="button"
+      role="option"
+      aria-selected={isActive}
+      tabIndex={-1}
       onClick={onSelect}
       onMouseEnter={onHover}
       className={`w-full text-left px-3 py-2.5 rounded-xl flex items-center justify-between transition-colors ${
@@ -45,8 +51,8 @@ export function CommandPaletteItem({
             <span
               className={`ml-2 text-xs truncate ${
                 isActive
-                  ? "text-blue-100"
-                  : "text-neutral-400"
+                  ? "text-white"
+                  : "text-neutral-500"
               }`}
             >
               {item.subtitle}
@@ -58,7 +64,7 @@ export function CommandPaletteItem({
         <kbd
           className={`text-xs px-2 py-0.5 rounded-md font-mono font-medium shrink-0 ${
             isActive
-              ? "bg-blue-700 text-blue-100"
+              ? "bg-blue-700 text-white"
               : "bg-neutral-100 text-neutral-500 border border-neutral-200"
           }`}
         >

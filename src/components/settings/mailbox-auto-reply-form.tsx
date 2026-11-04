@@ -139,7 +139,7 @@ export function MailboxAutoReplyForm() {
                 {t("settings.autoReply.needFullAccess")}
               </p>
             )}
-            {status && <p className="text-sm text-neutral-500">{status}</p>}
+            {status && <p role="status" className="text-sm text-neutral-500">{status}</p>}
           </div>
         </>
       )}

@@ -96,6 +96,20 @@ export class SqliteDatabase {
 		this.db.pragma("journal_mode = WAL");
 		this.db.pragma("foreign_keys = ON");
 		this.db.pragma("busy_timeout = 5000");
+		// Stock defaults are correct for the smallest installs, so tuning is
+		// opt-in only — no mailbox-size assumptions baked into the tree.
+		// Larger self-host databases can raise the page cache and mmap window
+		// via env (mmap serves reads straight from the OS page cache), keep
+		// sort materialization in memory, or drop synchronous to NORMAL —
+		// under WAL that cannot corrupt the database, but a power loss can
+		// still roll back the last committed transactions.
+		const cacheKb = Number(process.env.SQLITE_CACHE_KB ?? 0);
+		const mmapBytes = Number(process.env.SQLITE_MMAP_BYTES ?? 0);
+		const synchronous = (process.env.SQLITE_SYNCHRONOUS ?? "").toUpperCase();
+		if (Number.isFinite(cacheKb) && cacheKb > 0) this.db.pragma(`cache_size = -${Math.floor(cacheKb)}`);
+		if (Number.isFinite(mmapBytes) && mmapBytes > 0) this.db.pragma(`mmap_size = ${Math.floor(mmapBytes)}`);
+		if ((process.env.SQLITE_TEMP_STORE ?? "").toLowerCase() === "memory") this.db.pragma("temp_store = memory");
+		if (synchronous === "NORMAL" || synchronous === "OFF") this.db.pragma(`synchronous = ${synchronous}`);
 	}
 
 	prepare(sql: string) {

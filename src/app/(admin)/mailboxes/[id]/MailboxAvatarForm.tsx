@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Camera, LoaderCircle, User } from "lucide-react";
+import { Camera, LoaderCircle, User } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { dispatchMailboxAvatarChanged } from "@/lib/mailboxes/avatar-client";
 import { Input } from "@/components/ui/input";
@@ -99,7 +99,7 @@ export default function MailboxAvatarForm({
 					)}
 				</span>
 			</button>
-			{status && <p className="max-w-xs text-xs text-red-600">{status}</p>}
+			{status && <p role="alert" className="max-w-xs text-xs text-red-600">{status}</p>}
 		</div>
 	);
 }

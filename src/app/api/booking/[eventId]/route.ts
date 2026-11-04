@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { isUniqueConstraintError } from "@/lib/database-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { bookingEvents } from "@/db/schema";
@@ -19,7 +20,7 @@ export async function PATCH(request: Request, { params }: BookingEventRouteConte
 	if (!input) return NextResponse.json({ error: "Enter valid booking details and availability." }, { status: 400 });
 	const { eventId } = await params;
 	const db = getDb(env);
-	const canManageHosts = user.role === "admin" && (await getLicenseEntitlements(env)).canManageAccounts;
+	const canManageHosts = user.role === "admin" && (await getLicenseEntitlements(env)).canShareMailboxes;
 	const hostIds = await validBookingHostIds(db, user.id, input.hostIds, canManageHosts);
 	if (!hostIds) return NextResponse.json({ error: "Choose users from the host list." }, { status: 400 });
 	const [taken] = await db.select({ id: bookingEvents.id }).from(bookingEvents).where(and(eq(bookingEvents.userId, user.id), eq(bookingEvents.slug, input.slug))).limit(1);
@@ -28,7 +29,7 @@ export async function PATCH(request: Request, { params }: BookingEventRouteConte
 		const [event] = await db.update(bookingEvents).set({ ...input, hostIds: JSON.stringify(hostIds), weekdays: JSON.stringify(input.weekdays), timeRanges: JSON.stringify(input.timeRanges), updatedAt: new Date() }).where(and(eq(bookingEvents.id, eventId), eq(bookingEvents.userId, user.id))).returning();
 		return event ? NextResponse.json({ event }) : NextResponse.json({ error: "Booking event not found" }, { status: 404 });
 	} catch (error) {
-		if (error instanceof Error && /UNIQUE constraint failed|booking_events_user_slug_idx/i.test(error.message)) return NextResponse.json({ error: "This event link is already in use." }, { status: 409 });
+		if (isUniqueConstraintError(error)) return NextResponse.json({ error: "This event link is already in use." }, { status: 409 });
 		throw error;
 	}
 }

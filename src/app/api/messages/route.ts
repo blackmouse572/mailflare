@@ -4,15 +4,18 @@ import type { SQL } from "drizzle-orm";
 import { getEnv } from "@/lib/cloudflare";
 import { getCurrentUser } from "@/lib/auth/cookies";
 import { getDb } from "@/db";
-import { messages } from "@/db/schema";
+import { messages, outboundJobs } from "@/db/schema";
 import { getContactDisplayNameMap } from "@/lib/contacts/service";
+import { getSenderDisplayName } from "@/lib/contacts/utils";
 import { getFirstEmailAddressEntry, normalizeEmailAddress } from "@/lib/email/address";
-import { getMailboxAccessLevel, listAccessibleMailboxes } from "@/lib/mailboxes/access";
+import { getMailboxAccessLevel, hasMailboxPermission, listAccessibleMailboxes } from "@/lib/mailboxes/access";
 import { tracksAccountIdentity } from "@/lib/profile/identity-utils";
 import { buildSearchConditions } from "@/lib/search/conditions";
 import { getRequestTimeZone } from "@/lib/time/utils";
+import { scheduledMessageCondition } from "@/lib/email/scheduled";
 import { getMessageListColumns, loadConversationPage } from "./utils";
 import type { ListMessage } from "./types";
+import { getOpenCounts } from "@/lib/tracking/open-tracking";
 
 export async function GET(request: Request) {
 	const env = getEnv();
@@ -31,6 +34,7 @@ export async function GET(request: Request) {
 	const read = url.searchParams.get("read");
 	const starred = url.searchParams.get("starred");
 	const snoozed = url.searchParams.get("snoozed");
+	const scheduled = url.searchParams.get("scheduled");
 	const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 100);
 	const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
 	// Conversation view: one row per thread, represented by its newest message
@@ -42,8 +46,13 @@ export async function GET(request: Request) {
 	const accessibleMailboxIds = accessibleMailboxes.map((mailbox) => mailbox.id);
 	const conditions: SQL[] = [];
 	if (mailboxId) {
-		const access = await getMailboxAccessLevel(db, user, mailboxId);
-		if (!access?.canRead) {
+		const mailbox = accessibleMailboxes.find((mailbox) => mailbox.id === mailboxId);
+		// Reuse this request's authorization; retain the fallback for mailboxes
+		// omitted by the list's domain join (for example, legacy orphaned rows).
+		const canRead = mailbox
+			? hasMailboxPermission(mailbox.permission, "read_only")
+			: (await getMailboxAccessLevel(db, user, mailboxId))?.canRead;
+		if (!canRead) {
 			return NextResponse.json({ error: "Mailbox not found" }, { status: 404 });
 		}
 		conditions.push(eq(messages.mailboxId, mailboxId));
@@ -77,6 +86,9 @@ export async function GET(request: Request) {
 		conditions.push(isNull(messages.folderId));
 		conditions.push(gt(messages.snoozedUntil, new Date()));
 	}
+	if (scheduled === "true") {
+		conditions.push(scheduledMessageCondition(db));
+	}
 	if (read === "read") {
 		conditions.push(eq(messages.read, true));
 	}
@@ -100,6 +112,9 @@ export async function GET(request: Request) {
 	// Which stored messages each visible row stands for, so acting on a
 	// conversation row acts on the whole conversation within this folder.
 	const threadMessageIds = new Map<string, string[]>();
+	// Unread messages per conversation within this folder; the row's unread state
+	// has to match what marking it read will actually change.
+	const scopedThreadCounts = new Map<string, { total: number; unread: number }>();
 	if (groupByThread) {
 		const page = await loadConversationPage({ db, where, offset, limit });
 		total = page.total;
@@ -111,59 +126,62 @@ export async function GET(request: Request) {
 		const keys = rows.map((row) => row.threadId ?? row.id);
 		if (keys.length > 0) {
 			const members = await db
-				.select({ id: messages.id, key: threadKey })
+				.select({ id: messages.id, key: threadKey, read: messages.read })
 				.from(messages)
 				.where(and(where, inArray(threadKey, keys)));
 			for (const member of members) {
 				const list = threadMessageIds.get(member.key) ?? [];
 				list.push(member.id);
 				threadMessageIds.set(member.key, list);
+				const counts = scopedThreadCounts.get(member.key) ?? { total: 0, unread: 0 };
+				counts.total += 1;
+				if (!member.read) counts.unread += 1;
+				scopedThreadCounts.set(member.key, counts);
 			}
 		}
 	} else {
-		const [totalRow] = await db.select({ total: count() }).from(messages).where(where);
-		total = totalRow?.total ?? 0;
-		rows = await db
-			.select(messageListColumns)
-			.from(messages)
-			.where(where)
-			.orderBy(desc(messages.createdAt))
-			.limit(limit)
-			.offset(offset);
+		const [totals, pageRows] = await Promise.all([
+			db.select({ total: count() }).from(messages).where(where),
+			db
+				.select(messageListColumns)
+				.from(messages)
+				.where(where)
+				.orderBy(desc(messages.createdAt))
+				.limit(limit)
+				.offset(offset),
+		]);
+		total = totals[0]?.total ?? 0;
+		rows = pageRows;
 	}
 	// Conversation sizes for the rows on this page, so the list can show "(3)"
 	// next to a subject the way threaded clients do.
 	const threadIds = Array.from(new Set(rows.map((row) => row.threadId).filter((id): id is string => !!id)));
-	const threadCounts = new Map<string, { total: number; unread: number }>();
-	if (threadIds.length > 0) {
-		const scope = mailboxId
-			? eq(messages.mailboxId, mailboxId)
-			: accessibleMailboxIds.length > 0
-				? inArray(messages.mailboxId, accessibleMailboxIds)
-				: eq(messages.userId, user.id);
-		const countRows = await db
-			.select({
-				threadId: messages.threadId,
-				total: count(),
-				unread: sum(sql`case when ${messages.read} = 0 then 1 else 0 end`),
-			})
-			.from(messages)
-			.where(and(scope, inArray(messages.threadId, threadIds), isNotNull(messages.threadId), notInArray(messages.status, ["draft", "trash"])))
-			.groupBy(messages.threadId);
-		for (const row of countRows) {
-			if (row.threadId) threadCounts.set(row.threadId, { total: row.total, unread: Number(row.unread ?? 0) });
-		}
-	}
-	const mailboxNameMap = new Map(
-		accessibleMailboxes.map((mailbox) => [
-			mailbox.id,
-			mailbox.userId === user.id && tracksAccountIdentity(mailbox, user.email)
-				? user.name
-				: mailbox.displayName ?? mailbox.localPart,
-		]),
-	);
-	const contactMapsByUserId = new Map(
-		await Promise.all(
+	const scope = mailboxId
+		? eq(messages.mailboxId, mailboxId)
+		: accessibleMailboxIds.length > 0
+			? inArray(messages.mailboxId, accessibleMailboxIds)
+			: eq(messages.userId, user.id);
+	// These enrichments depend only on the selected page, not on each other.
+	const [countRows, jobs, openCounts, contactMaps] = await Promise.all([
+		threadIds.length > 0
+			? db
+				.select({
+					threadId: messages.threadId,
+					total: count(),
+					unread: sum(sql`case when ${messages.read} then 0 else 1 end`),
+				})
+				.from(messages)
+				.where(and(scope, inArray(messages.threadId, threadIds), isNotNull(messages.threadId), notInArray(messages.status, ["draft", "trash"])))
+				.groupBy(messages.threadId)
+			: [],
+		scheduled === "true" && rows.length > 0
+			? db
+				.select({ messageId: outboundJobs.messageId, scheduledAt: outboundJobs.scheduledAt })
+				.from(outboundJobs)
+				.where(and(inArray(outboundJobs.messageId, rows.map((row) => row.id)), eq(outboundJobs.status, "queued"), isNotNull(outboundJobs.scheduledAt)))
+			: [],
+		getOpenCounts(env, rows.filter((row) => row.direction === "outbound").map((row) => row.id)),
+		Promise.all(
 			Array.from(new Set(rows.map((message) => message.userId))).map(async (userId) => [
 				userId,
 				await getContactDisplayNameMap(
@@ -175,23 +193,44 @@ export async function GET(request: Request) {
 				),
 			] as const),
 		),
+	]);
+	const threadCounts = new Map<string, { total: number; unread: number }>();
+	for (const row of countRows) {
+		if (row.threadId) threadCounts.set(row.threadId, { total: row.total, unread: Number(row.unread ?? 0) });
+	}
+	const scheduledAtByMessageId = new Map<string, string>();
+	for (const job of jobs) {
+		if (job.messageId && job.scheduledAt) scheduledAtByMessageId.set(job.messageId, job.scheduledAt.toISOString());
+	}
+	const mailboxNameMap = new Map(
+		accessibleMailboxes.map((mailbox) => [
+			mailbox.id,
+			mailbox.userId === user.id && tracksAccountIdentity(mailbox, user.email)
+				? user.name
+				: mailbox.displayName ?? mailbox.localPart,
+		]),
 	);
+	const contactMapsByUserId = new Map(contactMaps);
 	// `Message.textBody`/`htmlBody` are optional on the wire type and the
 	// reading pane loads them from /api/messages/[id]/thread, so they are
 	// neither selected nor sent here.
 	const enrichedRows = rows.map(({ rawR2Key: _rawR2Key, ...message }) => {
+		const threadStats = message.threadId ? threadCounts.get(message.threadId) : undefined;
+		const folderUnread = scopedThreadCounts.get(message.threadId ?? message.id)?.unread;
 		const contactMap = contactMapsByUserId.get(message.userId);
 		const accountName = message.mailboxId ? mailboxNameMap.get(message.mailboxId) : null;
 		return {
 			...message,
 			snippet: message.snippet,
+			...(scheduledAtByMessageId.has(message.id) ? { scheduledAt: scheduledAtByMessageId.get(message.id) } : {}),
+			...(openCounts.has(message.id) ? { openCount: openCounts.get(message.id) } : {}),
 			fromContactName:
 				(message.direction === "outbound" ? accountName : null) ??
-				contactMap?.get(normalizeEmailAddress(message.fromAddr)) ??
-				null,
-			toContactName: contactMap?.get(normalizeEmailAddress(getFirstEmailAddressEntry(message.toAddr))) ?? null,
-			threadCount: (message.threadId && threadCounts.get(message.threadId)?.total) || 1,
-			threadUnread: (message.threadId && threadCounts.get(message.threadId)?.unread) || 0,
+				getSenderDisplayName(message.fromAddr, contactMap?.get(normalizeEmailAddress(message.fromAddr))),
+			toContactName:
+				contactMap?.get(normalizeEmailAddress(getFirstEmailAddressEntry(message.toAddr)))?.displayName ?? null,
+			threadCount: threadStats?.total || 1,
+			threadUnread: (groupByThread ? folderUnread : threadStats?.unread) || 0,
 			...(groupByThread
 				? { threadMessageIds: threadMessageIds.get(message.threadId ?? message.id) ?? [message.id] }
 				: {}),

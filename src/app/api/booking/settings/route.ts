@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { isUniqueConstraintError } from "@/lib/database-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
@@ -24,7 +25,7 @@ export async function PATCH(request: Request) {
 		await db.update(users).set({ bookingUsername: username }).where(eq(users.id, user.id));
 		return NextResponse.json({ username });
 	} catch (error) {
-		if (error instanceof Error && /UNIQUE constraint failed|users_booking_username_idx/i.test(error.message)) return NextResponse.json({ error: "This username is already taken." }, { status: 409 });
+		if (isUniqueConstraintError(error)) return NextResponse.json({ error: "This username is already taken." }, { status: 409 });
 		throw error;
 	}
 }

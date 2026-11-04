@@ -2,10 +2,10 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Cloud, ExternalLink } from "lucide-react";
+import { Cloud, ExternalLink } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { formatUserDate } from "@/lib/time/utils";
-import { MarkAsRead } from "@/components/mark-read";
+import { markMessageRead } from "@/components/mark-read";
 import { useSelectedMailbox } from "@/components/mailbox-provider";
 import { ContactDetailsTrigger } from "@/components/contacts/contact-details";
 import { ContactAvatar } from "@/components/contacts/contact-avatar";
@@ -18,8 +18,12 @@ import { PreviousMessage } from "@/components/previous-message";
 import { ConversationThread } from "@/components/messages/conversation-thread";
 import { MessageDetailNavigation } from "@/components/messages/message-detail-navigation";
 import { MessageReadingHeaderButton } from "@/components/messages/message-reading-header-button";
+import { ScheduledSendBanner } from "@/components/messages/scheduled-send-banner";
+import { formatScheduledSendTime } from "@/components/messages/scheduled-send-utils";
 import { QuotedEmailToggle } from "@/components/messages/quoted-email-toggle";
 import { ThreadMessageActions } from "@/components/messages/thread-message-actions";
+import { MessageDetailsPanel } from "@/components/messages/message-details-panel";
+import { SenderCheckNotice } from "@/components/messages/sender-check-notice";
 import { useMessageThread } from "@/components/messages/use-message-thread";
 import { useLatestMessagesFirst } from "@/components/messages/use-latest-messages-first";
 import { useMessageListVisibility } from "@/components/messages/message-list-visibility";
@@ -38,22 +42,31 @@ import {
 } from "./utils";
 import { extractCloudAttachments } from "./cloud-attachment-utils";
 import { EmailHtmlRenderer } from "@/components/messages/email-html-renderer";
+import { getEmailAddress } from "@/lib/email/address";
+import { useRemoteContent } from "@/components/messages/use-remote-content";
 import clsx from "clsx";
 import { useAssistantOpen } from "@/components/agent/assistant-open-state";
 import { useMessageContentScroll } from "./use-message-content-scroll";
+import { useSendViewStatus } from "@/components/messages/use-send-view-status";
 
 export default function MessageDetailPage() {
   const { t } = useLanguage();
   const params = useParams<{ messageId: string }>();
   const { selectedMailbox, mailboxes } = useSelectedMailbox();
   const messageId = params.messageId;
+  useSendViewStatus(messageId);
   const [data, setData] = useState<MessageDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewAttachment, setPreviewAttachment] =
     useState<MessageAttachment | null>(null);
   const [threadExpanded, setThreadExpanded] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [latestMessagesFirst] = useLatestMessagesFirst();
   const { enabled: showFullRecipientAddresses } = useShowFullRecipientAddresses();
+  const remote = useRemoteContent(
+    data?.message ? getEmailAddress(data.message.fromAddr) : undefined,
+    data?.message?.status === "spam",
+  );
   const { visible: messageListVisible } = useMessageListVisibility();
   usePageLoading(loading);
   const thread = useMessageThread(messageId, data?.message?.threadId);
@@ -69,6 +82,7 @@ export default function MessageDetailPage() {
       if (cachedData?.message && cachedData.body) {
         setData(cachedData);
         setLoading(false);
+        if (!cachedData.message.read) void markMessageRead(cachedData.message.id);
         if (cachedData.attachments !== undefined) return;
         try {
           const metadata = await fetchMessageMetadata(messageId);
@@ -79,10 +93,11 @@ export default function MessageDetailPage() {
         return;
       }
       setLoading(true);
-      const nextData = await fetchMessageDetail(messageId);
+      const nextData = await fetchMessageDetail(messageId).catch(() => fetchMessageDetail(messageId)).catch(() => ({ error: t("message.notFound") }));
       if (!cancelled) {
         setData(nextData);
         setLoading(false);
+        if ("message" in nextData && nextData.message && !nextData.message.read) void markMessageRead(nextData.message.id);
       }
     }
 
@@ -94,6 +109,23 @@ export default function MessageDetailPage() {
 
   useEffect(() => {
     setThreadExpanded(false);
+    setDetailsOpen(false);
+  }, [messageId]);
+
+  // A bulk read/unread action can include the message that is already open.
+  // Keep the mounted reader in sync with the cache instead of remounting it.
+  useEffect(() => {
+    function syncCachedReadState() {
+      const cached = getCachedMessageDetailForDisplay(messageId);
+      if (!cached?.message) return;
+      const cachedRead = cached.message.read;
+      setData((current) => {
+        if (!current?.message || current.message.read === cachedRead) return current;
+        return { ...current, message: { ...current.message, read: cachedRead } };
+      });
+    }
+    window.addEventListener("mailflare:messages-changed", syncCachedReadState);
+    return () => window.removeEventListener("mailflare:messages-changed", syncCachedReadState);
   }, [messageId]);
 
   if (loading) {
@@ -108,7 +140,7 @@ export default function MessageDetailPage() {
     );
   }
 
-  const { message, body, attachments = [] } = data;
+  const { message, body, attachments = [], scheduledAt } = data;
   const currentThreadMessage = {
     ...message,
     textBody: body?.textBody ?? null,
@@ -147,6 +179,11 @@ export default function MessageDetailPage() {
   const cloudAttachmentResult = extractCloudAttachments(
     bodyDisplay.latestContent,
   );
+  const messageDate = (withTime: boolean) => scheduledAt
+    ? formatScheduledSendTime(scheduledAt, t)
+    : formatUserDate(message.createdAt, withTime
+      ? { month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }
+      : { month: "short", day: "2-digit", year: "numeric" });
   return (<>
 
     <div className={clsx("flex py-2 h-12 items-center px-2 border-b sticky top-0 bg-white z-40 gap-3", scrolled ? "border-neutral-200" : "border-transparent")}>
@@ -180,9 +217,7 @@ export default function MessageDetailPage() {
     </div>
 
     <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto overscroll-contain scrollbar-gutter-stable flex-1 min-h-0">
-      {!message.read && <MarkAsRead messageId={message.id} />}
-
-      <h1 className={clsx(!isAnyPanelVisible ? "pl-16" : "pl-10", "pr-6 pb-2 pt-2 text-2xl text-neutral-900")} title={message.subject ?? t("list.noSubject")}>
+      <h1 className={clsx(!isAnyPanelVisible ? "sm:pl-16" : "sm:pl-10", "px-4 pb-2 pt-2 text-2xl text-neutral-900 sm:pr-6")} title={message.subject ?? t("list.noSubject")}>
         {message.subject ?? t("list.noSubject")}
       </h1>
       {/* <div className="px-6">
@@ -208,9 +243,9 @@ export default function MessageDetailPage() {
         expandedAll={threadExpanded}
         onExpandedAllChange={setThreadExpanded}
       />
-      <article className={clsx("px-6 py-4", !isAnyPanelVisible && "pl-12")}>
+      <article className={clsx("py-4 sm:px-6", !isAnyPanelVisible && "sm:pl-12")}>
         <div className="w-full">
-          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 pb-5 pl-4">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 px-4 pb-5 sm:px-0 sm:pl-4">
             <div className="flex min-w-0 items-start gap-3">
               <ContactAvatar
                 mailboxId={message.mailboxId}
@@ -235,7 +270,7 @@ export default function MessageDetailPage() {
                       fromName
                     )}
                   </b>{" "}
-                  <span className="text-neutral-500 text-xs flex-1 overflow-hidden text-ellipsis min-w-0">&lt;{fromAddress}&gt;</span>
+                  <span className="hidden sm:block text-neutral-500 text-xs flex-1 overflow-hidden text-ellipsis min-w-0">&lt;{fromAddress}&gt;</span>
                 </p>
                 <p className="text-xs text-neutral-500">
                   {t("source.to").toLowerCase()}{" "}
@@ -245,6 +280,9 @@ export default function MessageDetailPage() {
                     style={showFullRecipientAddresses ? "full" : "address"}
                   />
                 </p>
+                <div className="sm:hidden flex items-center gap-2 text-xs text-neutral-500">
+                  <span>{messageDate(false)}</span>
+                </div>
                 {ccEntries.length > 0 && (
                   <p className="text-xs text-neutral-500">
                     {t("message.cc")} <RecipientList entries={ccEntries} mailboxId={message.mailboxId} style={showFullRecipientAddresses ? "full" : "address"} />
@@ -258,27 +296,41 @@ export default function MessageDetailPage() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <p className="text-xs">
-                {formatUserDate(message.createdAt, { month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-              </p>
+              <p className="hidden text-xs sm:block">{messageDate(true)}</p>
               <ThreadMessageActions
                 message={currentThreadMessage}
                 mailboxId={message.mailboxId}
                 ownAddress={ownAddress}
                 ownAddresses={ownAddresses}
                 starOnly={!thread.messages.some((threadMessage) => threadMessage.id === message.id) || !thread.messages.some((threadMessage) => threadMessage.id !== message.id)}
+                detailsOpen={detailsOpen}
+                onToggleDetails={() => setDetailsOpen((open) => !open)}
               />
             </div>
           </div>
-          <div className="prose max-w-none pl-16 text-neutral-900">
+          <div className="mb-4 px-4 sm:px-0 sm:pl-4 sm:pr-4">
+            <SenderCheckNotice
+              message={message}
+              detailsOpen={detailsOpen}
+              onViewDetails={() => setDetailsOpen((open) => !open)}
+              announce
+            />
+          </div>
+          {detailsOpen && (
+            <div className="mb-4 px-4 sm:px-0 sm:pl-4 sm:pr-4">
+              <MessageDetailsPanel message={message} onClose={() => setDetailsOpen(false)} />
+            </div>
+          )}
+          {scheduledAt && <div className="px-4 sm:px-0 sm:pl-10"><ScheduledSendBanner messageId={message.id} scheduledAt={scheduledAt} /></div>}
+          <div className="prose max-w-none px-4 text-neutral-900 sm:px-0 sm:pl-16">
             {htmlBody ? (
-              <EmailHtmlRenderer key={message.id} className="mx-auto" html={htmlBody} />
+              <EmailHtmlRenderer key={message.id} className="mx-auto" html={htmlBody} autoAllowRemote={remote.autoAllow} onAllowRemote={remote.allowSender} />
             ) : (
               <pre className="whitespace-pre-wrap text-sm text mx-auto">
                 {cloudAttachmentResult.content}
               </pre>
             )}
-            {quotedHtml && <QuotedEmailToggle html={quotedHtml} />}
+            {quotedHtml && <QuotedEmailToggle html={quotedHtml} autoAllowRemote={remote.autoAllow} onAllowRemote={remote.allowSender} />}
             {bodyDisplay.quotedContent.map((quotedContent) => (
               <PreviousMessage
                 key={`${quotedContent.dateLine}-${quotedContent.content.slice(0, 24)}`}
@@ -287,7 +339,7 @@ export default function MessageDetailPage() {
             ))}
           </div>
           {cloudAttachmentResult.attachments.length > 0 && (
-            <section className="mt-8 border-t border-neutral-100 py-6 pl-16">
+            <section className="mt-8 border-t border-neutral-100 px-4 py-6 sm:px-0 sm:pl-16">
               <h2 className="mb-3 text-sm font-semibold text-neutral-900">
                 {t("message.cloudFiles", { count: cloudAttachmentResult.attachments.length })}
               </h2>
@@ -309,14 +361,15 @@ export default function MessageDetailPage() {
                         {t("message.openFrom", { provider: attachment.provider })}
                       </span>
                     </span>
-                    <ExternalLink className="h-4 w-4 shrink-0 text-neutral-400" />
+                    <ExternalLink className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden="true" />
+                    <span className="sr-only"> ({t("common.opensInNewTab")})</span>
                   </a>
                 ))}
               </div>
             </section>
           )}
           {attachments.length > 0 && (
-            <section className="mt-8 border-t border-neutral-100 py-6 pl-16">
+            <section className="mt-8 border-t border-neutral-100 px-4 py-6 sm:px-0 sm:pl-16">
               <h2 className="mb-3 text-sm font-semibold text-neutral-900">
                 {t("message.attachments", { count: attachments.length })}
               </h2>
@@ -359,4 +412,3 @@ export default function MessageDetailPage() {
   </>
   );
 }
-

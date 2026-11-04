@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Mail, X } from "lucide-react";
+import { Mail, X } from "@/components/icons";
 import { getEmailDisplayName } from "@/lib/email/address";
 import { useLanguage } from "@/components/language-provider";
 import type { NewMessagePopupProps } from "./new-message-popup-types";
@@ -35,7 +35,7 @@ export function NewMessagePopup({
 				<button
 					type="button"
 					onClick={onDismiss}
-					className="rounded-full p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+					className="rounded-full p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
 				>
 					<X className="h-4 w-4" />
 					<span className="sr-only">{t("notification.dismiss")}</span>

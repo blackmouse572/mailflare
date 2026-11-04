@@ -48,9 +48,9 @@ async function fixture(t, { rules = [], failAddress, slowAddress } = {}) {
 	t.after(() => database.db.close());
 	await applyMigrations(database, join(root, "drizzle/migrations"));
 	database.db.exec(`
-		INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES
-			('admin', 'owner@one.test', 'hash', 'Owner', 'admin', 1),
-			('other', 'owner@foreign.test', 'hash', 'Other', 'admin', 1);
+		INSERT INTO users (id, email, password_hash, name, role, is_primary_admin, created_at) VALUES
+			('admin', 'owner@one.test', 'hash', 'Owner', 'admin', 1, 1),
+			('other', 'owner@foreign.test', 'hash', 'Other', 'admin', 0, 1);
 		INSERT INTO domains (id, user_id, hostname, zone_id, status, created_at) VALUES
 			('one', 'admin', 'one.test', 'zone-one', 'active', 1),
 			('two', 'admin', 'two.test', 'zone-two', 'active', 1),
@@ -240,6 +240,20 @@ test("account creation still enforces admin authorization and the Team license",
 	assert.equal((await f.post("api")).status, 403);
 	assert.equal((await f.post("dashboard")).status, 403);
 	assert.equal(f.calls.length, 0);
+});
+
+test("a Pro license creates accounts only while seats remain; Team and unlimited Pro have no limit", async (t) => {
+	const f = await fixture(t);
+	const users = () => f.database.db.prepare("SELECT count(*) AS count FROM users WHERE disabled = 0").get().count;
+	f.database.db.exec(`UPDATE license_settings SET plan = 'pro', seat_limit = ${users()}`);
+	assert.equal((await f.post("api")).status, 403, "no seat left");
+	f.database.db.exec(`UPDATE license_settings SET seat_limit = ${users() + 1}`);
+	assert.equal((await f.post("api", { username: "seat-one" })).status, 201);
+	assert.equal((await f.post("api", { username: "seat-two" })).status, 403, "seat just used");
+	f.database.db.exec("UPDATE license_settings SET seat_limit = NULL");
+	assert.equal((await f.post("api", { username: "seat-three" })).status, 201);
+	f.database.db.exec("UPDATE license_settings SET plan = 'team', seat_limit = 1");
+	assert.equal((await f.post("api", { username: "seat-four" })).status, 201);
 });
 
 for (const separateDomains of [false, true]) {

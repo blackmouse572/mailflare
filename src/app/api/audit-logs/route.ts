@@ -1,5 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { aliasedTable, desc, eq, inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { auditLogs, domains, mailboxes, users } from "@/db/schema";
@@ -19,7 +18,7 @@ export async function GET(request: Request) {
 	const url = new URL(request.url);
 	const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 200);
 	const db = getDb(env);
-	const targetUsers = alias(users, "target_users");
+	const targetUsers = aliasedTable(users, "target_users");
 	const rows = await db
 		.select({
 			id: auditLogs.id,

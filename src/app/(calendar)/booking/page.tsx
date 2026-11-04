@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { mobilePrimaryActionClass } from "@/components/page-header-utils";
 import clsx from "clsx";
-import { CalendarDays, Check, Clock3, Copy, ExternalLink, MapPin, MoreHorizontal, Plus } from "lucide-react";
+import { CalendarDays, Check, Clock3, Copy, ExternalLink, MapPin, MoreHorizontal, Plus } from "@/components/icons";
 import toast, { Toaster } from "react-hot-toast";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
@@ -112,7 +112,7 @@ export default function BookingsPage() {
 	}
 
 	return <div className={clsx("flex h-full min-h-0 flex-col bg-[#f6f8fc] pl-3 max-md:pl-0 transition-[gap] duration-200 ease-in-out motion-reduce:transition-none lg:flex-row", minimal ? "gap-0" : "gap-3")}>
-		<Toaster position="bottom-right" />
+		<Toaster position="bottom-left" />
 		{loading && <RouteLoadingBarPortal />}
 		<UpcomingSidebar />
 		<section className="min-h-0 min-w-0 flex-1 overflow-hidden overscroll-contain max-md:rounded-t-3xl max-md:bg-white">
@@ -125,9 +125,9 @@ export default function BookingsPage() {
 								<div className="min-w-0"><h1 className="text-xl font-semibold text-neutral-900 md:text-3xl">{t("booking.title")}</h1><p className="mt-1 text-sm text-neutral-500">{t("booking.description")}</p></div>
 								<div className="flex shrink-0 items-center gap-2">
 
-									<Button variant="ghost" className="w-10 max-md:-mr-2">
-										<Link href={`/c/${username}`} target="_blank" className="text-blue-700 underline underline-offset-2">
-											<ExternalLink size={18} />
+									<Button asChild variant="ghost" className="w-10 max-md:-mr-2">
+										<Link href={`/c/${username}`} target="_blank" rel="noopener noreferrer" aria-label={t("booking.openPage", { name: username })} className="text-blue-700">
+											<ExternalLink size={18} aria-hidden="true" />
 										</Link>
 									</Button>
 

@@ -15,14 +15,15 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { List } from "@/components/ui/list";
-import { CheckCircle2, LoaderCircle, Plus } from "lucide-react";
+import { CheckCircle2, LoaderCircle, Plus } from "@/components/icons";
 import { authFetch } from "@/lib/auth/client";
 import type { DnsAuthRecord, DnsStatusSummary, Domain, DomainDnsCache, DomainDnsView, DomainPreflight, ReceivingProvider, SendingProvider } from "./types";
 import DomainItemCard from "./DomainItemCard";
 import { SectionRowSkeleton } from "@/components/page-skeletons";
 import { checkDomain } from "./utils";
-import { confirmMxReplacement } from "./api";
+import { confirmMxReplacement, createDomain, isMxConflictError } from "./api";
 
 export default function DomainsPage() {
   const { t } = useLanguage();
@@ -36,6 +37,7 @@ export default function DomainsPage() {
   const managesDns = me?.managesDns ?? true;
   const [domainCheck, setDomainCheck] = useState<DomainPreflight | null>(null);
   const [domainChecking, setDomainChecking] = useState(false);
+  const [skipDns, setSkipDns] = useState(false);
   const [sendingProvider, setSendingProvider] = useState<SendingProvider>("cloudflare");
   const [receivingProvider, setReceivingProvider] = useState<ReceivingProvider>("cloudflare");
   const [domainCheckError, setDomainCheckError] = useState<string | null>(null);
@@ -63,7 +65,9 @@ export default function DomainsPage() {
     mutationFn: async () => {
       const normalized = hostname.toLowerCase().trim();
       let checkedDomain = domainCheck;
-      if (checkedDomain?.hostname !== normalized) {
+      if (skipDns) {
+        checkedDomain = { hostname: normalized, zone: { id: "manual", name: normalized } };
+      } else if (checkedDomain?.hostname !== normalized) {
         const result = await checkDomain(normalized);
         if (!result.ok || !result.domain) {
           throw new Error(result.error ?? t("onboarding.domainCheckFailed"));
@@ -73,23 +77,18 @@ export default function DomainsPage() {
       }
       if (!checkedDomain) throw new Error(t("onboarding.domainCheckFailed"));
 
-      const res = await authFetch("/api/domains", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hostname: checkedDomain.hostname,
-          enableRouting: true,
-          sendingProvider,
-          receivingProvider,
-        }),
+      return createDomain({
+        hostname: checkedDomain.hostname,
+        enableRouting: true,
+        skipDns,
+        sendingProvider,
+        receivingProvider,
       });
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? t("mailboxes.failed"));
-      return json;
     },
     onSuccess: () => {
       setHostname("");
       setDomainCheck(null);
+      setSkipDns(false);
       setSendingProvider("cloudflare");
       setReceivingProvider("cloudflare");
       setDomainCheckError(null);
@@ -258,7 +257,7 @@ export default function DomainsPage() {
 
   const inspectDomain = async () => {
     const normalized = hostname.toLowerCase().trim();
-    if (normalized.length < 3 || domainCheck?.hostname === normalized) return;
+    if (skipDns || normalized.length < 3 || domainCheck?.hostname === normalized) return;
 
     setDomainChecking(true);
     setDomainCheckError(null);
@@ -316,6 +315,24 @@ export default function DomainsPage() {
               </div>
               <div className="flex items-center justify-between gap-4 rounded-xl bg-neutral-50 px-4 py-3">
                 <div>
+                  <Label htmlFor="skip-dns">{t("setup.skipDns")}</Label>
+                  <p className="mt-1 text-xs leading-5 text-neutral-500">
+                    {skipDns ? t("setup.skipDnsOn") : t("setup.skipDnsHint")}
+                  </p>
+                </div>
+                <Switch
+                  id="skip-dns"
+                  checked={skipDns}
+                  onCheckedChange={(checked) => {
+                    setSkipDns(checked);
+                    setDomainCheckError(null);
+                  }}
+                />
+              </div>
+              {!skipDns && (
+                <>
+              <div className="flex items-center justify-between gap-4 rounded-xl bg-neutral-50 px-4 py-3">
+                <div>
                   <Label htmlFor="receiving-provider">{t("domains.receiveWith")}</Label>
                   <p className="mt-1 text-xs leading-5 text-neutral-500">
                     {receivingProvider === "cloudflare"
@@ -363,7 +380,9 @@ export default function DomainsPage() {
                   <option value="none">{t("domains.notSelected")}</option>
                 </select>
               </div>
-              {domainCheck && (
+                </>
+              )}
+              {domainCheck && !skipDns && (
                 <div className="flex items-center gap-3 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700">
                   <CheckCircle2 className="h-4 w-4" />
                   {t("setup.domainFound", { zone: domainCheck.zone.name })}
@@ -377,19 +396,21 @@ export default function DomainsPage() {
               {create.isError && (
                 <div className="space-y-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
                   <p>{(create.error as Error).message}</p>
-                  <div className="space-y-2">
-                    <p className="font-medium">
-                      {t("domains.tokenPermissions")}
-                    </p>
-                    <ul className="list-disc space-y-1 pl-5">
-                      <li>
-                        {t("domains.tokenAccounts")}
-                      </li>
-                      <li>
-                        {t("domains.tokenZones")}
-                      </li>
-                    </ul>
-                  </div>
+                  {!isMxConflictError(create.error) && (
+                    <div className="space-y-2">
+                      <p className="font-medium">
+                        {t("domains.tokenPermissions")}
+                      </p>
+                      <ul className="list-disc space-y-1 pl-5">
+                        <li>
+                          {t("domains.tokenAccounts")}
+                        </li>
+                        <li>
+                          {t("domains.tokenZones")}
+                        </li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
               <Button

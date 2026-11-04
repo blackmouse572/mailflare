@@ -1,9 +1,9 @@
-import { defaultTranslator, type Translator } from "@/lib/i18n/utils";
+import type { ImportJobSummary } from "@/lib/import/jobs-types";
 import { authFetch } from "@/lib/auth/client";
+import { getMailboxFolders, invalidateFolderCache } from "@/lib/folders/client";
 import type {
 	ImapFormState,
 	ImportFolderSummary,
-	ImportResult,
 	ImportSourceItem,
 	ImportSourceOption,
 	ImportSourceSection,
@@ -85,42 +85,73 @@ export async function ensureImportDestination(
 	});
 	const data = (await response.json()) as ImportFolderSummary & { error?: string };
 	if (!response.ok) throw new Error(data.error ?? `Unable to create folder ${source.folderName}`);
+	invalidateFolderCache();
 	return `folder:${data.id}`;
 }
 
 async function fetchMailboxFolders(mailboxId: string): Promise<ImportFolderSummary[]> {
-	const params = new URLSearchParams({ mailboxId });
-	const response = await authFetch(`/api/folders?${params.toString()}`);
-	const data = (await response.json()) as { folders?: ImportFolderSummary[]; error?: string };
-	if (!response.ok) throw new Error(data.error ?? "Unable to load folders");
+	const data = await getMailboxFolders<{ folders?: ImportFolderSummary[] }>(mailboxId);
 	return data.folders ?? [];
 }
 
-export async function importFromImap(
+export async function startImapImport(
 	mailboxId: string,
 	form: ImapFormState,
-	destination: string,
-	offset = 0,
-): Promise<ImportResult> {
+	sources: { folder: string; destination: string }[],
+): Promise<ImportJobSummary> {
 	const response = await authFetch("/api/import/imap", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			mailboxId,
-			destination,
+			sources,
 			host: form.host,
 			port: Number(form.port),
 			secure: form.secure,
 			username: form.username,
 			password: form.password,
-			folder: form.folder,
 			limit: Number(form.limit),
-			offset,
+			importAll: form.importAll,
 		}),
 	});
-	const data = (await response.json()) as ImportResult;
-	if (!response.ok) throw new Error(data.error ?? "IMAP import failed");
-	return data;
+	const data = await readImportJson<{ job?: ImportJobSummary; error?: string }>(response);
+	if (!response.ok || !data.job) throw new Error(data.error ?? "IMAP import failed");
+	return data.job;
+}
+
+export async function fetchImportJobs(): Promise<ImportJobSummary[]> {
+	const response = await authFetch("/api/import/jobs");
+	if (!response.ok) throw new Error("Unable to load imports");
+	return (await readImportJson<{ jobs?: ImportJobSummary[] }>(response)).jobs ?? [];
+}
+
+/** Cancels a running import, or removes a finished one from the list. */
+export async function removeImportJob(id: string): Promise<void> {
+	const response = await authFetch(`/api/import/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+	if (!response.ok) throw new Error("Unable to update the import");
+}
+
+/** Continues a failed import. IMAP imports need the password again, since it is never stored. */
+export async function resumeImportJob(id: string, password?: string): Promise<void> {
+	const response = await authFetch(`/api/import/jobs/${encodeURIComponent(id)}/resume`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ password }),
+	});
+	if (!response.ok) {
+		const data = (await response.json().catch(() => null)) as { error?: string } | null;
+		throw new Error(data?.error || "Unable to resume the import");
+	}
+}
+
+async function readImportJson<T extends object>(response: Response): Promise<T> {
+	const text = await response.text();
+	try {
+		return JSON.parse(text) as T;
+	} catch {
+		const status = response.status === 503 ? "the Worker exceeded its resource limits" : `HTTP ${response.status}`;
+		throw new Error(`Import request failed (${status}). Try again with a smaller batch size.`);
+	}
 }
 
 export async function fetchImapFolders(form: ImapFormState): Promise<string[]> {
@@ -135,14 +166,9 @@ export async function fetchImapFolders(form: ImapFormState): Promise<string[]> {
 			password: form.password,
 		}),
 	});
-	const data = (await response.json()) as { folders?: string[]; error?: string };
+	const data = await readImportJson<{ folders?: string[]; error?: string }>(response);
 	if (!response.ok) throw new Error(data.error ?? "Unable to list IMAP folders");
 	return data.folders ?? [];
-}
-
-export function formatImportResult(result: ImportResult | null, t: Translator = defaultTranslator): string {
-	if (!result) return "";
-	return t("import.summary", { imported: result.imported ?? 0, skipped: result.skipped ?? 0 });
 }
 
 function findFolderMatch(folders: string[], aliases: string[]): string | null {
@@ -156,7 +182,7 @@ function getFolderAliases(section: ImportSourceSection): string[] {
 	if (section === "drafts") return ["Drafts", "[Gmail]/Drafts"];
 	if (section === "archived") return ["Archive", "Archived", "[Gmail]/All Mail"];
 	if (section === "spam") return ["Spam", "Junk", "Junk Email", "[Gmail]/Spam"];
-	if (section === "trash") return ["Trash", "Deleted", "Deleted Items", "Deleted Messages", "[Gmail]/Trash"];
+	if (section === "trash") return ["Trash", "Deleted", "Deleted Items", "Deleted Messages", "[Gmail]/Trash", "[Gmail]/Bin"];
 	return [];
 }
 

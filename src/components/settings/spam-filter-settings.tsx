@@ -53,7 +53,7 @@ export function SpamFilterSettings() {
 				</span>
 				<Switch checked={enabled} disabled={loading} onCheckedChange={(value) => void updateEnabled(value)} aria-label={t("settings.spam.enable")} />
 			</label>
-			{error && <p className="mt-2 px-4 text-sm text-red-600">{error}</p>}
+			{error && <p role="alert" className="mt-2 px-4 text-sm text-red-600">{error}</p>}
 		</div>
 	);
 }

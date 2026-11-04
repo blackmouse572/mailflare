@@ -1,14 +1,28 @@
 "use client";
 
 import clsx from "clsx";
-import { Menu } from "lucide-react";
+import { Menu } from "@/components/icons";
+import Link from "next/link";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { useSidebar } from "./sidebar-state";
 import { useLanguage } from "./language-provider";
+import { useBranding } from "./branding-provider";
 
 export function SidebarAside({ children, className }: { children: ReactNode; className?: string }) {
 	const { mobile, mobileOpen, toggle } = useSidebar();
 	const hidden = mobile && !mobileOpen;
+
+	useEffect(() => {
+		if (!mobile || !mobileOpen) return;
+		function onKeyDown(event: KeyboardEvent) {
+			if (event.key !== "Escape") return;
+			toggle();
+			document.querySelector<HTMLElement>("[data-mobile-menu]")?.focus();
+		}
+		document.addEventListener("keydown", onKeyDown);
+		return () => document.removeEventListener("keydown", onKeyDown);
+	}, [mobile, mobileOpen, toggle]);
 
 	return (
 		<>
@@ -35,12 +49,18 @@ export function SidebarAside({ children, className }: { children: ReactNode; cla
 
 export function MobileMenuButton({ className }: { className?: string }) {
 	const { t } = useLanguage();
+	const branding = useBranding();
 	const { mobile, mobileOpen, toggle } = useSidebar();
 	if (!mobile) return null;
 	return (
-		<button type="button" onClick={toggle} aria-label={t("navigation.openMenu")} aria-expanded={mobileOpen} className={clsx("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-200 md:hidden", className)}>
-			<Menu size={20} />
-		</button>
+		<>
+			<button type="button" data-mobile-menu onClick={toggle} aria-label={t("navigation.openMenu")} aria-expanded={mobileOpen} className={clsx("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-neutral-600 hover:bg-neutral-200 md:hidden", className)}>
+				<Menu size={20} />
+			</button>
+			<Link href="/inbox" aria-label={t("navigation.inbox")} className="-ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-neutral-200 md:hidden">
+				<img src={branding.iconUrl} height={28} width={28} alt="" />
+			</Link>
+		</>
 	);
 }
 
@@ -49,7 +69,7 @@ export function MobileTopBar({ title }: { title?: string }) {
 	return (
 		<div className="flex h-16 shrink-0 items-center gap-2 pl-2 md:hidden">
 			<MobileMenuButton />
-			{title && <h2 className="min-w-0 max-w-[40vw] truncate text-base font-medium text-neutral-900">{title}</h2>}
+			{title && <p aria-hidden="true" className="min-w-0 max-w-[40vw] truncate text-base font-medium text-neutral-900">{title}</p>}
 		</div>
 	);
 }

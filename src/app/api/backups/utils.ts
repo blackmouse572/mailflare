@@ -10,7 +10,7 @@ export function parseBackupSettingsInput(value: unknown): BackupSettingsInput | 
 	if (typeof input.scheduleType !== "string" || !SCHEDULE_TYPES.has(input.scheduleType)) return null;
 	if (typeof input.retentionEnabled !== "boolean") return null;
 	if (!Array.isArray(input.excludedTableGroups)) return null;
-	const groupIds = new Set(BACKUP_TABLE_GROUPS.map((group) => group.id));
+	const groupIds = new Set<string>(BACKUP_TABLE_GROUPS.map((group) => group.id));
 	if (!input.excludedTableGroups.every((id) => typeof id === "string" && groupIds.has(id))) return null;
 	const excludedTableGroups = [...new Set(input.excludedTableGroups)] as BackupSettingsInput["excludedTableGroups"];
 	if (excludedTableGroups.length === BACKUP_TABLE_GROUPS.length) return null;

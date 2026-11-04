@@ -59,6 +59,7 @@ export async function POST(request: Request) {
 		...(status ? { status } : {}),
 		...(read !== null ? { read } : {}),
 		...(folderId !== undefined ? { folderId } : {}),
+		...(payload.action === "inbox" ? { snoozedUntil: null } : {}),
 	};
 
 	if (payload.action !== "delete" && Object.keys(values).length === 0) {

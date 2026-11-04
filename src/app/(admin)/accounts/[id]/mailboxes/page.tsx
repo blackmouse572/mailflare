@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,12 @@ export default function AccountMailboxesPage() {
                   {mailbox.localPart}@{mailbox.hostname}
                 </span>
               </span>
+              <span className="flex shrink-0 items-center gap-1">
+              <Button asChild variant="ghost" size="sm">
+                <Link href={`/mailboxes/${mailbox.id}`} aria-label={`${t("mailbox.title")}: ${mailbox.localPart}@${mailbox.hostname}`}>
+                  {t("mailbox.title")}
+                </Link>
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -111,6 +118,7 @@ export default function AccountMailboxesPage() {
               >
                 <Trash2 className="h-4 w-4 text-red-600" />
               </Button>
+              </span>
             </div>
           ))}
           {account && mailboxes.length === 0 && (
@@ -168,7 +176,7 @@ export default function AccountMailboxesPage() {
           </form>
         </div>
       </section>
-      {message && <p className="text-sm text-neutral-500">{message}</p>}
+      {message && <p role="status" className="text-sm text-neutral-500">{message}</p>}
     </div>
   );
 }

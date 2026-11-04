@@ -9,7 +9,9 @@ import { processInboundMessage } from "@/lib/email/inbound";
 import { processAgentDraftJob } from "@/lib/agent/jobs/utils";
 import { processOutboundQueue, type OutboundQueueMessage } from "@/lib/email/send";
 import { processWebhookRetry, type WebhookRetryMessage } from "@/lib/email/webhooks";
-import { isInboundQueueMessage, isWebhookRetryMessage } from "../worker-utils";
+import { processImportJob } from "@/lib/import/jobs";
+import { applyPendingMigrations } from "@/lib/migrations/service";
+import { isImportJobMessage, isInboundQueueMessage, isWebhookRetryMessage } from "../worker-utils";
 import { createNodeRuntime } from "./runtime/env";
 import { applyMigrations } from "./runtime/migrate";
 import { startScheduler } from "./runtime/scheduler";
@@ -28,7 +30,9 @@ async function main() {
 	const { env } = runtime;
 	globalThis.__mailflareNodeEnv = env;
 
-	const migrated = await applyMigrations(runtime.database, resolve(process.env.MIGRATIONS_DIR ?? join(process.cwd(), "drizzle", "migrations")));
+	const migrated = runtime.database
+		? await applyMigrations(runtime.database, resolve(process.env.MIGRATIONS_DIR ?? join(process.cwd(), "drizzle", "migrations")))
+		: (await applyPendingMigrations(env.DB)).applied;
 	if (migrated.length) console.log(`Applied ${migrated.length} migration(s): ${migrated.join(", ")}`);
 
 	runtime.inboundQueue.setConsumer(async (body) => {
@@ -36,6 +40,7 @@ async function main() {
 	});
 	runtime.outboundQueue.setConsumer(async (body) => {
 		if (isWebhookRetryMessage(body)) await processWebhookRetry(env, body as WebhookRetryMessage);
+		else if (isImportJobMessage(body)) await processImportJob(env, body);
 		else await processOutboundQueue(env, body as OutboundQueueMessage);
 	});
 	runtime.agentQueue.setConsumer(async (body) => {
@@ -46,7 +51,26 @@ async function main() {
 	const handle = app.getRequestHandler();
 	await app.prepare();
 
+	// Set TRUST_PROXY=1 when a reverse proxy terminates in front of this
+	// process; the client IP it appended to x-forwarded-for is then trusted.
+	// Direct exposure must leave it unset so only the socket IP is trusted.
+	const trustProxy = ["1", "true", "yes"].includes((process.env.TRUST_PROXY ?? "").toLowerCase());
+
 	const server = createServer((request, response) => {
+		// The only client IP that cannot be forged is the socket's. Next sees
+		// re-serialized headers, so stamp the resolved IP into a private header
+		// after removing every client-supplied forwarding header — otherwise a
+		// direct attacker could rotate them to dodge the login rate limiter.
+		const forwarded = request.headers["x-forwarded-for"];
+		const hops = (Array.isArray(forwarded) ? forwarded.at(-1) : forwarded)
+			?.split(",")
+			.map((hop) => hop.trim())
+			.filter(Boolean) ?? [];
+		const clientIp = (trustProxy ? hops.at(-1) : undefined) ?? request.socket.remoteAddress;
+		delete request.headers["cf-connecting-ip"];
+		delete request.headers["x-forwarded-for"];
+		delete request.headers["x-mailflare-client-ip"];
+		if (clientIp) request.headers["x-mailflare-client-ip"] = clientIp;
 		void handle(request, response, parse(request.url ?? "/", true));
 	});
 

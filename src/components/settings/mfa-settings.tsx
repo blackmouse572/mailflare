@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, ShieldCheck, ShieldOff } from "lucide-react";
+import { Copy, ShieldCheck, ShieldOff } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -174,7 +174,7 @@ function EnrollDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
 							<Label htmlFor="mfa-password">{t("common.password")}</Label>
 							<Input id="mfa-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
 						</div>
-						{error && <p className="text-sm text-red-600">{error}</p>}
+						{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 						<Button type="submit" disabled={busy}>{busy ? t("common.pleaseWait") : t("common.continue")}</Button>
 					</form>
 				)}
@@ -184,7 +184,7 @@ function EnrollDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
 							<DialogTitle>{t("mfa.scanTitle")}</DialogTitle>
 							<DialogDescription>{t("mfa.scanDescription")}</DialogDescription>
 						</DialogHeader>
-						<div className="mx-auto w-48 rounded-xl border border-neutral-200 bg-white p-2" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+						<div role="img" aria-label={t("mfa.scanTitle")} className="mx-auto w-48 rounded-xl border border-neutral-200 bg-white p-2" dangerouslySetInnerHTML={{ __html: qrSvg }} />
 						<details className="text-xs text-neutral-500">
 							<summary className="cursor-pointer">{t("mfa.cantScan")}</summary>
 							<code className="mt-2 block break-all rounded-md bg-neutral-50 p-2 font-mono text-neutral-800">{secret}</code>
@@ -193,7 +193,7 @@ function EnrollDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
 							<Label htmlFor="mfa-code">{t("mfa.sixDigitCode")}</Label>
 							<Input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="123 456" required autoFocus />
 						</div>
-						{error && <p className="text-sm text-red-600">{error}</p>}
+						{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 						<Button type="submit" disabled={busy}>{busy ? t("mfa.checking") : t("mfa.verifyAndTurnOn")}</Button>
 					</form>
 				)}
@@ -252,7 +252,7 @@ function DisableDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCh
 						<Label htmlFor="mfa-off-code">{t("mfa.code")}</Label>
 						<Input id="mfa-off-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value)} required />
 					</div>
-					{error && <p className="text-sm text-red-600">{error}</p>}
+					{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 					<Button type="submit" variant="destructive" disabled={busy}>{busy ? t("common.pleaseWait") : t("mfa.turnOff")}</Button>
 				</form>
 			</DialogContent>
@@ -310,7 +310,7 @@ function RecoveryCodesDialog({ open, onOpenChange, onDone }: { open: boolean; on
 							<Label htmlFor="rc-password">{t("common.password")}</Label>
 							<Input id="rc-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
 						</div>
-						{error && <p className="text-sm text-red-600">{error}</p>}
+						{error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 						<Button type="submit" disabled={busy}>{busy ? t("common.pleaseWait") : t("mfa.generate")}</Button>
 					</form>
 				)}

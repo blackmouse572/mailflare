@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Upload } from "lucide-react";
+import { Upload } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -130,7 +130,7 @@ export default function AccountDetailsPage() {
 					</Button>
 				)}
 			</section>
-			{message && <p className="text-sm text-neutral-500">{message}</p>}
+			{message && <p role="status" className="text-sm text-neutral-500">{message}</p>}
 		</div>
 	);
 }

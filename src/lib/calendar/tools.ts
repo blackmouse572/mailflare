@@ -2,11 +2,13 @@ import { and, eq, gte, lt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { calendarEvents } from "@/db/schema";
+import { toolEmailSchema } from "@/lib/agent/schema-utils";
 import { newId } from "@/lib/ids";
 import { normalizeTimeZone, zonedDateFields } from "@/lib/time/utils";
 import { normalizeCalendarColor } from "./colors";
 import { DEFAULT_REPEAT_DAYS, normalizeCalendarRepeatDays, parseCalendarOccurrenceId } from "./recurrence";
 import { expandToolEvents } from "./tool-occurrences";
+import { CONFIRMED_CALENDAR_TOOLS, createCalendarConfirmation } from "./confirmation";
 import type { CalendarToolContext, CalendarToolName } from "./tool-types";
 
 const id = z.string().min(1).max(160);
@@ -16,7 +18,7 @@ const repeat = z.enum(["none", "daily", "weekly", "monthly", "weekdays"]);
 const fields = {
 	title: z.string().trim().min(1).max(500), description: z.string().max(10_000), location: z.string().max(500),
 	startsAt: instant, endsAt: instant, timeZone: z.string().max(80), color: z.string().max(30),
-	repeat, repeatDays: z.array(z.number().int().min(0).max(6)).max(7), attendees: z.array(z.string().email()).max(50),
+	repeat, repeatDays: z.array(z.number().int().min(0).max(6)).max(7), attendees: z.array(toolEmailSchema).max(50),
 };
 const update = z.object({ eventId: id, title: fields.title.optional(), description: fields.description.optional(), location: fields.location.optional(), startsAt: instant.optional(), endsAt: instant.optional(), timeZone: fields.timeZone.optional(), color: fields.color.optional(), repeat: repeat.optional(), repeatDays: fields.repeatDays.optional(), attendees: fields.attendees.optional() });
 
@@ -36,8 +38,8 @@ export const calendarToolDescriptions: Record<CalendarToolName, string> = {
 	search_events: "Search event title, description, and location in an ISO 8601 time range, up to 90 days.",
 	get_event: "Get an event or recurring occurrence by ID. Returns its series ID for edits.",
 	create_event: "Create an event in the user's personal calendar. This saves immediately; attendees are recorded but invitations are not sent.",
-	update_events: "Update up to 20 owned event series by series ID. Changes apply to the whole series and save immediately; invitations are not sent.",
-	delete_events: "Delete up to 20 owned event series by series ID. This saves immediately and does not send cancellations.",
+	update_events: "Propose changes to up to 20 owned event series by series ID. Nothing changes until the user approves it at the returned reviewUrl in Mailflare; changes apply to whole series and no invitations are sent.",
+	delete_events: "Propose deleting up to 20 owned event series by series ID. Nothing is deleted until the user approves it at the returned reviewUrl in Mailflare; no cancellations are sent.",
 	find_free_time: "Find available slots using the user's events in an ISO 8601 time range, up to 90 days. Returns UTC instants.",
 	get_calendars: "List the calendars available here. Mailflare currently has one personal calendar per user.",
 };
@@ -59,6 +61,17 @@ async function eventsInRange(context: CalendarToolContext, from: Date, to: Date)
 export async function runCalendarTool(context: CalendarToolContext, name: CalendarToolName, rawInput: unknown): Promise<unknown> {
 	const input = calendarToolSchemas[name].parse(rawInput) as Record<string, unknown>;
 	const db = getDb(context.env);
+	// Editing or deleting events is only proposed by an assistant; the user approves it in the app.
+	if (CONFIRMED_CALENDAR_TOOLS.has(name) && !context.confirmed) {
+		const token = await createCalendarConfirmation(context.env, context.user.id, name, rawInput);
+		const count = ((input.updates ?? input.eventIds) as unknown[]).length;
+		return {
+			status: "confirmation_required",
+			message: `${count} event series would be ${name === "delete_events" ? "deleted" : "changed"}. Nothing happened yet: ask the user to review and approve it in Mailflare.`,
+			reviewUrl: `/agent/calendar-review?token=${encodeURIComponent(token)}`,
+			expiresInMinutes: 15,
+		};
+	}
 	if (name === "get_calendars") return { calendars: [{ id: "personal", name: "Personal calendar", timeZone: normalizeTimeZone(context.user.timeZone), writable: true }] };
 	if (name === "get_schedule" || name === "search_events" || name === "find_free_time") {
 		const { from, to } = dates(input.start as string, input.end as string);

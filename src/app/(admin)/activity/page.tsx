@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { LogIn, LogOut } from "lucide-react";
+import { LogIn, LogOut } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -28,14 +28,14 @@ export default function ActivityPage() {
         </p>
       </div>
 
-      <section className="overflow-x-auto rounded-3xl bg-white">
+      <section role="region" tabIndex={0} aria-label={t("activity.title")} className="overflow-x-auto rounded-3xl bg-white">
         <table className="w-full min-w-[760px] table-fixed text-left">
           <thead className="border-b border-neutral-100 bg-neutral-50 text-xs font-semibold uppercase tracking-wide text-neutral-500">
             <tr>
-              <th className="w-32 px-5 py-3">{t("activity.col.activity")}</th>
-              <th className="px-5 py-3">{t("activity.col.user")}</th>
-              <th className="w-64 px-5 py-3">{t("activity.col.device")}</th>
-              <th className="w-48 px-5 py-3">{t("activity.col.time")}</th>
+              <th scope="col" className="w-32 px-5 py-3">{t("activity.col.activity")}</th>
+              <th scope="col" className="px-5 py-3">{t("activity.col.user")}</th>
+              <th scope="col" className="w-64 px-5 py-3">{t("activity.col.device")}</th>
+              <th scope="col" className="w-48 px-5 py-3">{t("activity.col.time")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">

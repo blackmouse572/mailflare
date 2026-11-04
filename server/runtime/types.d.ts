@@ -6,7 +6,8 @@ import type { SqliteDatabase } from "./sqlite-database";
 export type NodeRuntime = {
 	env: CloudflareEnv;
 	dataDir: string;
-	database: SqliteDatabase;
+	/** The local SQLite file; absent when DATABASE_URL selects an external database. */
+	database?: SqliteDatabase;
 	mailer: Mailer;
 	inboundQueue: InProcessQueue;
 	outboundQueue: InProcessQueue;

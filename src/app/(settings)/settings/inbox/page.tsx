@@ -1,7 +1,9 @@
 import { getServerTranslator } from "@/lib/i18n/server";
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { InboxThreadingSettings } from "@/components/settings/inbox-threading-settings";
+import { RemoteContentSettings } from "@/components/settings/remote-content-settings";
 import { RecipientAddressSettings } from "@/components/settings/recipient-address-settings";
+import { ComposeDefaultsSettings } from "@/components/settings/compose-defaults-settings";
 import { InboxReadingLayoutSettings } from "@/components/settings/inbox-reading-layout-settings";
 import { InboxShortcutsSettings } from "@/components/settings/inbox-shortcuts-settings";
 import { MailboxAutoReplyForm } from "@/components/settings/mailbox-auto-reply-form";
@@ -14,6 +16,7 @@ export default async function SettingsInboxPage() {
 	const t = await getServerTranslator();
 	return (
 		<div className="space-y-8 py-4">
+			<h1 className="sr-only">{t("settings.nav.inbox")}</h1>
 			<section className="space-y-4">
 				<div>
 					<h2 className="text-xl font-semibold text-neutral-900">{t("settingsPage.inbox.experience")}</h2>
@@ -50,6 +53,13 @@ export default async function SettingsInboxPage() {
 					</div>
 					<div className="py-6 first:pt-0 last:pb-0">
 						<div className="mb-4">
+							<h3 className="text-base font-semibold text-neutral-900">{t("settingsPage.inbox.compose")}</h3>
+							<p className="mt-1 text-sm text-neutral-500">{t("settingsPage.inbox.composeDescription")}</p>
+						</div>
+						<ComposeDefaultsSettings />
+					</div>
+					<div className="py-6 first:pt-0 last:pb-0">
+						<div className="mb-4">
 							<h3 className="text-base font-semibold text-neutral-900">{t("settingsPage.inbox.shortcuts")}</h3>
 							<p className="mt-1 text-sm text-neutral-500">{t("settingsPage.inbox.shortcutsDescription")}</p>
 						</div>
@@ -79,6 +89,13 @@ export default async function SettingsInboxPage() {
 							<p className="mt-1 text-sm text-neutral-500">{t("settingsPage.inbox.spamProtectionDescription")}</p>
 						</div>
 						<SpamFilterSettings />
+					</div>
+					<div className="py-6 first:pt-0 last:pb-0">
+						<div className="mb-4">
+							<h3 className="text-base font-semibold text-neutral-900">{t("settingsPage.inbox.remoteContent")}</h3>
+							<p className="mt-1 text-sm text-neutral-500">{t("settingsPage.inbox.remoteContentDescription")}</p>
+						</div>
+						<RemoteContentSettings />
 					</div>
 					<div className="py-6 first:pt-0 last:pb-0">
 						<div className="mb-4">

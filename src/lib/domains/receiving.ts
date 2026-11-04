@@ -6,6 +6,7 @@ import { deleteDnsRecord } from "@/lib/cloudflare-dns";
 import { deleteEmailRoutingRulesForDomain } from "@/lib/domains/cloudflare-cleanup";
 import { removeMxRecords } from "@/lib/domains/mx-records";
 import { setupDomainDnsRecord } from "@/lib/domains/dns-setup";
+import { adoptCloudflareZone } from "@/lib/domains/adopt-zone";
 import { isManualZone } from "@/lib/domains/provision";
 import { listDomainMx, MxConflictError } from "@/lib/domains/receiving-dns";
 import { removeResendReceiving, setupResendReceiving, hasResendReceivingConfig } from "@/lib/domains/resend-receiving";
@@ -19,7 +20,8 @@ export type ConfigurableReceiving = Exclude<ReceivingProviderId, "none">;
 const isCloudflareMx = (content: string) => content.toLowerCase().replace(/\.$/, "").endsWith(".mx.cloudflare.net");
 
 /** Email Routing on the zone, the MX and the Worker routes for this domain's mailboxes. */
-export async function setupCloudflareReceiving(env: CloudflareEnv, domain: DomainRow, options: { replaceMx: boolean }): Promise<void> {
+export async function setupCloudflareReceiving(env: CloudflareEnv, skippedDomain: DomainRow, options: { replaceMx: boolean }): Promise<void> {
+	const domain = await adoptCloudflareZone(env, skippedDomain);
 	if (isManualZone(domain.zoneId)) throw new Error("Cloudflare Email Routing needs a domain on a Cloudflare zone");
 	const foreign = (await listDomainMx(env, domain)).filter((record) => !isCloudflareMx(record.content ?? ""));
 	if (foreign.length > 0 && !options.replaceMx) {
@@ -62,8 +64,11 @@ export async function setupReceiving(
 	options: { replaceMx: boolean },
 ): Promise<void> {
 	if (provider === "cloudflare") return setupCloudflareReceiving(env, domain, options);
-	if (provider === "resend") return setupResendReceiving(env, domain, origin, options);
-	return setupSesReceiving(env, domain, origin, options);
+	if (provider === "resend") await setupResendReceiving(env, domain, origin, options);
+	else await setupSesReceiving(env, domain, origin, options);
+	// Same as a domain created with DNS: once receiving works, inbound routing
+	// (which only resolves active domains) must see this domain.
+	await getDb(env).update(domains).set({ status: "active" }).where(eq(domains.id, domain.id));
 }
 
 export async function removeReceiving(env: CloudflareEnv, domain: DomainRow, provider: ConfigurableReceiving): Promise<void> {

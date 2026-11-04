@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import { scheduledMessageCondition } from "@/lib/email/scheduled";
 import { getDb } from "@/db";
 import { messages } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth/cookies";
@@ -9,7 +10,7 @@ import { getMailboxAccessLevel, listAccessibleMailboxIds } from "@/lib/mailboxes
 import type { MessageFolder } from "@/hooks/types";
 import type { MessageNavigationEntry } from "./types";
 
-const folders: MessageFolder[] = ["inbox", "starred", "snoozed", "sent", "archived", "spam", "trash"];
+const folders: MessageFolder[] = ["inbox", "starred", "snoozed", "sent", "scheduled", "archived", "spam", "trash"];
 
 export async function GET(request: Request) {
 	const env = getEnv();
@@ -54,6 +55,8 @@ export async function GET(request: Request) {
 	} else if (folder === "sent") {
 		conditions.push(eq(messages.direction, "outbound"));
 		conditions.push(eq(messages.status, "sent"));
+	} else if (folder === "scheduled") {
+		conditions.push(scheduledMessageCondition(db));
 	} else {
 		conditions.push(eq(messages.status, folder));
 	}
@@ -76,9 +79,13 @@ export async function GET(request: Request) {
 			if (existing) existing.unread ||= unread;
 			else byThread.set(key, { id: row.id, unread });
 		}
-		entries.push(...byThread.values());
+		// push(...spread) passes each entry as an argument and RangeErrors on
+		// large folders (~100k+ messages); append in a loop instead.
+		for (const entry of byThread.values()) entries.push(entry);
 	} else {
-		entries.push(...rows.map((row) => ({ id: row.id, unread: row.direction === "inbound" && !row.read })));
+		for (const row of rows) {
+			entries.push({ id: row.id, unread: row.direction === "inbound" && !row.read });
+		}
 	}
 
 	return NextResponse.json({ messages: entries });

@@ -37,7 +37,7 @@ export default function RoutingPage() {
 					{domains.isLoading ? (
 						<Skeleton className="h-10 w-full" />
 					) : domains.isError ? (
-						<p className="text-sm text-red-600">{domains.error.message}</p>
+						<p role="alert" className="text-sm text-red-600">{domains.error.message}</p>
 					) : availableDomains.length === 0 ? (
 						<p className="text-sm text-neutral-500">{t("routingAdmin.addDomainFirst")}</p>
 					) : (

@@ -1,6 +1,6 @@
 export type MessageStatus = "received" | "sent" | "draft" | "queued" | "failed" | "archived" | "trash" | "spam";
 
-export type MessageFolder = "inbox" | "starred" | "snoozed" | "sent" | "drafts" | "archived" | "trash" | "spam";
+export type MessageFolder = "inbox" | "starred" | "snoozed" | "sent" | "scheduled" | "drafts" | "archived" | "trash" | "spam";
 
 export type MessageDirection = "inbound" | "outbound";
 
@@ -16,6 +16,9 @@ export type Message = {
 	toAddr: string;
 	ccAddr?: string | null;
 	bccAddr?: string | null;
+	/** Comma-separated Reply-To list; replies go here instead of `fromAddr` when set. */
+	replyTo?: string | null;
+	/** Resolved sender label: a manually named contact, otherwise this message's From name. */
 	fromContactName?: string | null;
 	fromContactHasAvatar?: boolean;
 	toContactName?: string | null;
@@ -27,6 +30,10 @@ export type Message = {
 	read: boolean;
 	starred: boolean;
 	snoozedUntil?: string | null;
+	/** When a scheduled send will go out; set on rows in the Scheduled list. */
+	scheduledAt?: string | null;
+	/** Opens counted by the read-receipt pixel; absent when the message was sent without one. */
+	openCount?: number;
 	threadId: string | null;
 	inReplyTo?: string | null;
 	references?: string | null;

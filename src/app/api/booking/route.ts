@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { isUniqueConstraintError } from "@/lib/database-errors";
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { bookingEvents, users } from "@/db/schema";
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
 	const db = getDb(env);
 	const events = await db.select().from(bookingEvents).where(eq(bookingEvents.userId, user.id)).orderBy(bookingEvents.createdAt);
 	const [currentUser] = await db.select({ avatarKey: users.avatarKey }).from(users).where(eq(users.id, user.id)).limit(1);
-	const canManageHosts = user.role === "admin" && (await getLicenseEntitlements(env)).canManageAccounts;
+	const canManageHosts = user.role === "admin" && (await getLicenseEntitlements(env)).canShareMailboxes;
 	return NextResponse.json({ events, username, currentUser: { id: user.id, name: user.name, email: user.email, hasAvatar: !!currentUser?.avatarKey }, canManageHosts });
 }
 
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
 	const input = parseBookingEventInput(await request.json().catch(() => null));
 	if (!input) return NextResponse.json({ error: "Enter valid booking details and availability." }, { status: 400 });
 	const db = getDb(env);
-	const canManageHosts = user.role === "admin" && (await getLicenseEntitlements(env)).canManageAccounts;
+	const canManageHosts = user.role === "admin" && (await getLicenseEntitlements(env)).canShareMailboxes;
 	const hostIds = await validBookingHostIds(db, user.id, input.hostIds, canManageHosts);
 	if (!hostIds) return NextResponse.json({ error: "Choose users from the host list." }, { status: 400 });
 	const [taken] = await db.select({ id: bookingEvents.id }).from(bookingEvents).where(and(eq(bookingEvents.userId, user.id), eq(bookingEvents.slug, input.slug))).limit(1);
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
 		const [event] = await db.insert(bookingEvents).values({ ...input, id: newId("book"), userId: user.id, hostIds: JSON.stringify(hostIds), weekdays: JSON.stringify(input.weekdays), timeRanges: JSON.stringify(input.timeRanges) }).returning();
 		return NextResponse.json({ event });
 	} catch (error) {
-		if (error instanceof Error && /UNIQUE constraint failed|booking_events_user_slug_idx/i.test(error.message)) return NextResponse.json({ error: "This event link is already in use." }, { status: 409 });
+		if (isUniqueConstraintError(error)) return NextResponse.json({ error: "This event link is already in use." }, { status: 409 });
 		throw error;
 	}
 }

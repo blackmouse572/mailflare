@@ -40,7 +40,7 @@ export async function PUT(request: Request) {
 	if (!hasValidSessionMutationOrigin(request)) return Response.json({ error: "Invalid origin" }, { status: 403 });
 	const body = await request.json().catch(() => null);
 	const enabled = enabledSchema.safeParse(body);
-	if (enabled.success && Object.keys(body).length === 1) {
+	if (enabled.success && Object.keys(body as object).length === 1) {
 		const db = getDb(access.env);
 		await db.insert(appSettings).values({ id: AGENT_SETTINGS_ID, agentEnabled: enabled.data.enabled }).onConflictDoUpdate({ target: appSettings.id, set: { agentEnabled: enabled.data.enabled, updatedAt: new Date() } });
 		if (!enabled.data.enabled) {

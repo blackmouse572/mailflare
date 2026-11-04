@@ -1,4 +1,5 @@
 import { createAuditLog } from "@/lib/mailboxes/audit";
+import { getClientIp } from "./client-ip";
 import type { AuthActivityAction, AuthActivityMetadata } from "./activity-types";
 
 export async function recordAuthActivity(
@@ -34,10 +35,7 @@ export function getAuthActivityMetadata(request: Request): AuthActivityMetadata 
 }
 
 function getRequestIpAddress(request: Request): string {
-	const cfIp = getHeaderValue(request, "cf-connecting-ip");
-	if (cfIp) return cfIp;
-	const forwardedFor = getHeaderValue(request, "x-forwarded-for");
-	return forwardedFor?.split(",")[0]?.trim() || "Unknown";
+	return getClientIp(request) ?? "Unknown";
 }
 
 function getHeaderValue(request: Request, name: string): string | null {

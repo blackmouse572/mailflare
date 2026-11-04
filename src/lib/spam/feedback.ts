@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { messages, spamFeedback } from "@/db/schema";
+import { messages, spamFeedback, spamReputation, spamTokenStats } from "@/db/schema";
+import { excluded, greatest } from "@/db/sql";
 import { getMailboxAccessLevel } from "@/lib/mailboxes/access";
 import type { SessionUser } from "@/lib/auth/types";
 import { createAuditLog } from "@/lib/mailboxes/audit";
@@ -25,24 +26,53 @@ export async function applySpamFeedback(env: CloudflareEnv, user: SessionUser, m
 	const parsed = {
 		subject: message.subject, text: message.textBody, html: message.htmlBody,
 		messageId: message.providerMessageId, fromAddr: message.fromAddr, toAddr: message.toAddr,
-		ccAddr: message.ccAddr, bccAddr: message.bccAddr, inReplyTo: message.inReplyTo,
+		ccAddr: message.ccAddr, bccAddr: message.bccAddr, replyTo: message.replyTo, inReplyTo: message.inReplyTo,
 		references: message.references?.split(/\s+/).filter(Boolean) ?? [], date: message.createdAt,
 		attachments: [],
 	};
 	const prepared = prepareSpamContent(parsed);
 	const tokens = previous ? JSON.parse(previous.trainingTokens) as string[] : tokenizeMessage(parsed, prepared);
 	const keys = previous ? JSON.parse(previous.reputationKeys) as ReputationKey[] : getReputationKeys(parsed, buildFingerprint(parsed, prepared));
-	const now = Math.floor(Date.now() / 1000);
-	const statements: D1PreparedStatement[] = [];
+	const now = new Date();
+	const statements: Array<PromiseLike<unknown>> = [];
 	const addCounts = (target: SpamClassification, amount: 1 | -1) => {
-		for (const token of tokens) statements.push(env.DB.prepare(`INSERT INTO spam_token_stats (mailbox_id, token, spam_count, ham_count, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(mailbox_id, token) DO UPDATE SET spam_count = MAX(0, spam_count + excluded.spam_count), ham_count = MAX(0, ham_count + excluded.ham_count), updated_at = excluded.updated_at`).bind(message.mailboxId, token, target === "spam" ? amount : 0, target === "ham" ? amount : 0, now));
-		for (const item of keys) statements.push(env.DB.prepare(`INSERT INTO spam_reputation (mailbox_id, type, key, messages_seen, spam_count, ham_count, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(mailbox_id, type, key) DO UPDATE SET messages_seen = MAX(messages_seen, excluded.messages_seen), spam_count = MAX(0, spam_count + excluded.spam_count), ham_count = MAX(0, ham_count + excluded.ham_count), last_seen_at = excluded.last_seen_at`).bind(message.mailboxId, item.type, item.key, amount > 0 ? 1 : 0, target === "spam" ? amount : 0, target === "ham" ? amount : 0, now, now));
+		const spamCount = target === "spam" ? amount : 0;
+		const hamCount = target === "ham" ? amount : 0;
+		for (const token of tokens) {
+			statements.push(db.insert(spamTokenStats).values({ mailboxId: message.mailboxId!, token, spamCount, hamCount, updatedAt: now }).onConflictDoUpdate({
+				target: [spamTokenStats.mailboxId, spamTokenStats.token],
+				set: {
+					spamCount: greatest(0, sql`${spamTokenStats.spamCount} + ${excluded(spamTokenStats.spamCount)}`),
+					hamCount: greatest(0, sql`${spamTokenStats.hamCount} + ${excluded(spamTokenStats.hamCount)}`),
+					updatedAt: now,
+				},
+			}));
+		}
+		for (const item of keys) {
+			statements.push(db.insert(spamReputation).values({
+				mailboxId: message.mailboxId!, type: item.type, key: item.key, messagesSeen: amount > 0 ? 1 : 0, spamCount, hamCount, firstSeenAt: now, lastSeenAt: now,
+			}).onConflictDoUpdate({
+				target: [spamReputation.mailboxId, spamReputation.type, spamReputation.key],
+				set: {
+					messagesSeen: greatest(sql`${spamReputation.messagesSeen}`, sql`${excluded(spamReputation.messagesSeen)}`),
+					spamCount: greatest(0, sql`${spamReputation.spamCount} + ${excluded(spamReputation.spamCount)}`),
+					hamCount: greatest(0, sql`${spamReputation.hamCount} + ${excluded(spamReputation.hamCount)}`),
+					lastSeenAt: now,
+				},
+			}));
+		}
 	};
 	if (previous) addCounts(previous.classification, -1);
 	addCounts(classification, 1);
-	statements.push(env.DB.prepare(`INSERT INTO spam_feedback (message_id, mailbox_id, actor_user_id, classification, training_tokens, reputation_keys, tokenizer_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET actor_user_id = excluded.actor_user_id, classification = excluded.classification, updated_at = excluded.updated_at`).bind(messageId, message.mailboxId, user.id, classification, JSON.stringify(tokens), JSON.stringify(keys), TOKENIZER_VERSION, now, now));
-	statements.push(env.DB.prepare("UPDATE messages SET status = ?, folder_id = NULL WHERE id = ?").bind(status, messageId));
-	await env.DB.batch(statements);
+	statements.push(db.insert(spamFeedback).values({
+		messageId, mailboxId: message.mailboxId, actorUserId: user.id, classification, trainingTokens: JSON.stringify(tokens),
+		reputationKeys: JSON.stringify(keys), tokenizerVersion: TOKENIZER_VERSION, createdAt: now, updatedAt: now,
+	}).onConflictDoUpdate({
+		target: spamFeedback.messageId,
+		set: { actorUserId: user.id, classification, updatedAt: now },
+	}));
+	statements.push(db.update(messages).set({ status, folderId: null }).where(eq(messages.id, messageId)));
+	await db.batch(statements as never);
 	await createAuditLog(env, {
 		actorUserId: user.id,
 		mailboxId: message.mailboxId,

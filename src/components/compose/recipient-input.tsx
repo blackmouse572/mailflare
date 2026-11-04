@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { X } from "lucide-react";
+import { X } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { Label } from "@/components/ui/label";
 import { getEmailAddress } from "@/lib/email/address";
@@ -77,7 +77,7 @@ export function RecipientInput({
 								<button
 									type="button"
 									aria-label={t("recipient.remove", { address: getEmailAddress(entry) })}
-									className="rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700"
+									className="rounded-full p-0.5 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700"
 									onClick={(event) => {
 										event.stopPropagation();
 										onChange(value.filter((item) => item !== entry));

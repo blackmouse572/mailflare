@@ -86,7 +86,7 @@ export async function getResendReceivingView(env: CloudflareEnv, domain: DomainR
 		steps.push({ key: "domain", label: "Receiving enabled for this domain", ok: enabled, detail: !resend ? "Domain is not in Resend yet" : undefined });
 		const mx = inboundMx(resend?.records);
 		const mxOk = mx ? await hasMx(env, domain, mx.value) : false;
-		steps.push({ key: "mx", label: "MX record points to Resend", ok: mxOk === true, detail: mx?.value ?? undefined });
+		steps.push({ key: "mx", label: "MX record points to Resend", ok: mxOk === true, detail: mxOk === null ? "Could not check DNS from here" : mx?.value ?? undefined });
 		steps.push({ key: "verified", label: "Domain verified", ok: resend?.status === "verified", detail: resend ? resend.status.replace(/_/g, " ") : undefined });
 		const hooks = await listResendWebhooks(key.apiKey);
 		const hookOk = hooks.some((webhook) => webhook.endpoint === resendWebhookUrl(origin)) && !!(await getResendWebhookSecret(env));

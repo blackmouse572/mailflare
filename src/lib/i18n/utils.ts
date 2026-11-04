@@ -14,9 +14,15 @@ export function getDirection(locale: Locale): "ltr" | "rtl" {
 	return (locales[locale] as { dir?: "rtl" }).dir ?? "ltr";
 }
 
-/** Fetches the catalog for a locale; English is already bundled, others load on demand. */
-export async function loadMessages(locale: Locale): Promise<Partial<Messages>> {
-	return locales[locale].load();
+/** Reads a static asset by path. The browser uses `fetch`; server code passes the `ASSETS` binding. */
+export type AssetReader = (path: string) => Promise<Response>;
+
+/** Fetches the catalog for a locale; English is already bundled, others load on demand from `public/locales`. */
+export async function loadMessages(locale: Locale, read: AssetReader = (path) => fetch(path)): Promise<Partial<Messages>> {
+	if (locale === DEFAULT_LOCALE) return en;
+	const response = await read(`/locales/${locale}.json`);
+	if (!response.ok) throw new Error(`Catalog for ${locale} is unavailable (${response.status})`);
+	return response.json();
 }
 
 export type TranslationVars = Record<string, string | number | null | undefined>;

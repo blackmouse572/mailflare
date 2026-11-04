@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
@@ -37,13 +37,15 @@ await build({
 	logLevel: "silent",
 });
 const { SqliteDatabase, applyMigrations, createAgentChatStream, runEmailTool, requestAgentSend, createSession, postAgentChat } = await import(pathToFileURL(join(bundleDirectory, "entry.mjs")).href);
+after(() => rmSync(bundleDirectory, { recursive: true, force: true }));
 
 test("assistant reads mail, creates an editable reply draft, and invokes tools through chat", async (t) => {
-	t.after(() => rmSync(bundleDirectory, { recursive: true, force: true }));
 	const directory = mkdtempSync(join(tmpdir(), "mailflare-agent-"));
-	t.after(() => rmSync(directory, { recursive: true, force: true }));
 	const database = new SqliteDatabase(join(directory, "mailflare.sqlite"));
-	t.after(() => database.db.close());
+	t.after(() => {
+		database.db.close();
+		rmSync(directory, { recursive: true, force: true });
+	});
 	await applyMigrations(database, join(process.cwd(), "drizzle", "migrations"));
 	database.db.exec(`
 		INSERT INTO users (id, email, password_hash, name, created_at) VALUES ('user-1', 'owner@example.com', 'hash', 'Owner', 1);
@@ -76,6 +78,7 @@ test("assistant reads mail, creates an editable reply draft, and invokes tools t
 	const env = { DB: database, BUCKET: { get: async () => null, delete: async () => {} }, AI_BASE_URL: `http://127.0.0.1:${address.port}/v1`, AI_API_KEY: "test-key", AI_MODEL: "test-model" };
 	const context = { env, user: { id: "user-1", email: "owner@example.com", role: "user" }, mailboxId: "mailbox-1", origin: "chat" };
 
+	const direct = { ...context, origin: "mcp" };
 	const listed = await runEmailTool(context, "list_emails", { folder: "inbox", limit: 20 });
 	assert.equal(listed.emails[0].id, "email-1");
 	const email = await runEmailTool(context, "get_email", { emailId: "email-1" });
@@ -94,13 +97,16 @@ test("assistant reads mail, creates an editable reply draft, and invokes tools t
 	assert.equal(database.db.prepare("SELECT count(*) AS count FROM agent_send_approvals").get().count, 0);
 	const newDraft = await runEmailTool(context, "draft_email", { to: "customer@example.net", subject: "Follow up", body: "Hello again." });
 	assert.equal(database.db.prepare("SELECT status FROM messages WHERE id = ?").get(newDraft.draftId).status, "draft");
-	await runEmailTool(context, "discard_draft", { draftId: newDraft.draftId, expectedRevision: 1 });
+	const pendingDiscard = await runEmailTool(context, "discard_draft", { draftId: newDraft.draftId, expectedRevision: 1 });
+	assert.equal(pendingDiscard.status, "pending_approval");
+	assert.ok(database.db.prepare("SELECT id FROM messages WHERE id = ?").get(newDraft.draftId));
+	await runEmailTool(direct, "discard_draft", { draftId: newDraft.draftId, expectedRevision: 1 });
 	assert.equal(database.db.prepare("SELECT id FROM messages WHERE id = ?").get(newDraft.draftId), undefined);
-	await runEmailTool(context, "mark_email_read", { emailId: "email-1", read: true });
+	await runEmailTool(direct, "mark_email_read", { emailId: "email-1", read: true });
 	assert.equal(database.db.prepare("SELECT read FROM messages WHERE id = 'email-1'").get().read, 1);
-	await runEmailTool(context, "move_email", { emailId: "email-1", destination: "archived" });
+	await runEmailTool(direct, "move_email", { emailId: "email-1", destination: "archived" });
 	assert.equal(database.db.prepare("SELECT status FROM messages WHERE id = 'email-1'").get().status, "archived");
-	await runEmailTool(context, "move_email", { emailId: "email-1", destination: "inbox" });
+	await runEmailTool(direct, "move_email", { emailId: "email-1", destination: "inbox" });
 
 	const { stream } = await createAgentChatStream(context, "What arrived in my inbox?");
 	const events = (await new Response(stream).text()).trim().split("\n").map((line) => JSON.parse(line));
@@ -128,4 +134,92 @@ test("assistant reads mail, creates an editable reply draft, and invokes tools t
 	const approval = await requestAgentSend(env, context.user, draft.draftId, 1);
 	assert.equal(approval.status, "pending_approval");
 	assert.equal(database.db.prepare("SELECT status FROM agent_send_approvals WHERE id = ?").get(approval.approvalId).status, "pending");
+});
+
+async function paginationContext(t) {
+	const database = new SqliteDatabase(":memory:");
+	t.after(() => database.db.close());
+	await applyMigrations(database, join(root, "drizzle", "migrations"));
+	database.db.exec(`
+		INSERT INTO users (id, email, password_hash, name, created_at) VALUES
+			('user-1', 'owner@example.com', 'hash', 'Owner', 1),
+			('user-2', 'other@example.com', 'hash', 'Other', 1);
+		INSERT INTO domains (id, user_id, hostname, zone_id, status, created_at) VALUES ('domain-1', 'user-1', 'example.com', 'zone-1', 'active', 1);
+		INSERT INTO mailboxes (id, user_id, domain_id, local_part, created_at) VALUES
+			('mailbox-1', 'user-1', 'domain-1', 'owner', 1),
+			('mailbox-2', 'user-2', 'domain-1', 'other', 1);
+		INSERT INTO messages (id, user_id, mailbox_id, direction, from_addr, to_addr, subject, text_body, status, created_at) VALUES
+			('email-1', 'user-1', 'mailbox-1', 'inbound', 'sender@example.net', 'owner@example.com', 'First', 'First email', 'received', 2),
+			('email-2', 'user-1', 'mailbox-1', 'inbound', 'sender@example.net', 'owner@example.com', 'Second', 'Second email', 'received', 3),
+			('email-3', 'user-1', 'mailbox-1', 'inbound', 'sender@example.net', 'owner@example.com', 'Third', 'Third email', 'received', 4),
+			('foreign-email', 'user-2', 'mailbox-2', 'inbound', 'sender@example.net', 'other@example.com', 'Other mailbox', 'Private', 'received', 5),
+			('private-draft', 'user-2', 'mailbox-1', 'outbound', 'owner@example.com', 'sender@example.net', 'Other user draft', 'Private', 'draft', 6);
+	`);
+	return { env: { DB: database }, user: { id: "user-1", email: "owner@example.com", role: "user" }, mailboxId: "mailbox-1", origin: "chat" };
+}
+
+test("email pagination starts with an omitted or null cursor and follows returned cursors", async (t) => {
+	const context = await paginationContext(t);
+	const first = await runEmailTool(context, "list_emails", { folder: "inbox", limit: 1 });
+	assert.deepEqual(first.emails.map((email) => email.id), ["email-3"]);
+	assert.equal(first.nextCursor, "email-3");
+	assert.deepEqual(await runEmailTool(context, "list_emails", { folder: "inbox", limit: 1, cursor: null }), first);
+	const second = await runEmailTool(context, "list_emails", { folder: "inbox", limit: 1, cursor: first.nextCursor });
+	assert.deepEqual(second.emails.map((email) => email.id), ["email-2"]);
+	const third = await runEmailTool(context, "list_emails", { folder: "inbox", limit: 1, cursor: second.nextCursor });
+	assert.deepEqual(third.emails.map((email) => email.id), ["email-1"]);
+	assert.equal(third.nextCursor, null);
+	assert.deepEqual(await runEmailTool(context, "list_emails", { folder: "inbox", limit: 1, cursor: "email-1" }), { emails: [], nextCursor: null });
+});
+
+test("email pagination rejects invented and inaccessible cursors with retry guidance", async (t) => {
+	const context = await paginationContext(t);
+	for (const cursor of ["0", "initial", "missing-email", "foreign-email", "private-draft"]) {
+		await assert.rejects(runEmailTool(context, "list_emails", { folder: "inbox", limit: 1, cursor }), (error) => {
+			assert.match(error.message, /Invalid pagination cursor/);
+			assert.match(error.message, /omit cursor|omit the cursor/i);
+			assert.match(error.message, /null/);
+			assert.match(error.message, /nextCursor/);
+			return true;
+		});
+	}
+	await assert.rejects(runEmailTool(context, "get_email", { emailId: "missing-email" }), /Message not found/);
+	await assert.rejects(runEmailTool({ ...context, mailboxId: "mailbox-2" }, "list_emails", { folder: "inbox", cursor: "foreign-email" }), /Mailbox not found or permission denied/);
+});
+
+test("chat receives pagination correction guidance and can retry with a null cursor", async (t) => {
+	const context = await paginationContext(t);
+	const requests = [];
+	const server = createServer(async (request, response) => {
+		let raw = "";
+		for await (const chunk of request) raw += chunk;
+		const body = JSON.parse(raw);
+		requests.push(body);
+		const results = body.messages.filter((message) => message.role === "tool");
+		response.writeHead(200, { "Content-Type": "text/event-stream" });
+		const chunk = (delta, finishReason = null) => response.write(`data: ${JSON.stringify({ id: "pagination-mock", object: "chat.completion.chunk", created: 1, model: "test-model", choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`);
+		const canRetry = results.length === 1 && results[0].content.includes("Invalid pagination cursor") && results[0].content.includes("null");
+		if (results.length === 0 || canRetry) {
+			chunk({ role: "assistant", tool_calls: [{ index: 0, id: `pagination-call-${results.length}`, type: "function", function: { name: "list_emails", arguments: JSON.stringify({ folder: "inbox", limit: 1, cursor: canRetry ? null : "0" }) } }] });
+			chunk({}, "tool_calls");
+		} else {
+			chunk({ role: "assistant", content: results.length === 2 ? "The most recent email is Third." : "Unable to list emails." });
+			chunk({}, "stop");
+		}
+		response.end("data: [DONE]\n\n");
+	});
+	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+	t.after(() => server.close());
+	context.env = { ...context.env, AI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`, AI_API_KEY: "test-key", AI_MODEL: "test-model" };
+	const { stream } = await createAgentChatStream(context, "List my most recent email.");
+	const events = (await new Response(stream).text()).trim().split("\n").map((line) => JSON.parse(line));
+	const failed = events.find((event) => event.type === "tool" && event.name === "list_emails" && event.state === "failed");
+	assert.match(failed?.result ?? "", /Invalid pagination cursor/);
+	const listed = events.find((event) => event.type === "tool" && event.name === "list_emails" && event.state === "complete");
+	assert.deepEqual(listed?.result.emails.map((email) => email.id), ["email-3"]);
+	assert.ok(events.some((event) => event.type === "text" && event.text.includes("Third")));
+	assert.equal(requests.length, 3);
+	// Inspect the actual tool arguments replayed to the provider between steps.
+	assert.equal(JSON.parse(requests[1].messages.find((message) => message.tool_calls?.length).tool_calls[0].function.arguments).cursor, "0");
+	assert.equal(JSON.parse(requests[2].messages.filter((message) => message.tool_calls?.length).at(-1).tool_calls[0].function.arguments).cursor, null);
 });

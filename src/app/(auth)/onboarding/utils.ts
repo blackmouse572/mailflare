@@ -25,11 +25,12 @@ export async function createDomain(
 	hostname: string,
 	enableSending: boolean,
 	replaceMxRecords = false,
+	skipDns = false,
 ): Promise<{ ok: boolean; data: DomainCreateResult }> {
 	const res = await authFetch("/api/domains", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ hostname, enableRouting: true, enableSending, replaceMxRecords }),
+		body: JSON.stringify({ hostname, enableRouting: true, enableSending, replaceMxRecords, skipDns }),
 	});
 
 	return {

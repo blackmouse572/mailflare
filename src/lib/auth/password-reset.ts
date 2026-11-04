@@ -7,7 +7,9 @@ import { deleteUserSessions, hashSessionToken } from "@/lib/auth/session";
 import { getBranding } from "@/lib/branding/service";
 import { sendSystemEmail } from "@/lib/email/system-mail";
 import { createAuditLog } from "@/lib/mailboxes/audit";
-import { escapeHtml } from "@/lib/auth/password-reset-utils";
+import { getClientIp } from "@/lib/auth/client-ip";
+import { buildPasswordResetEmail } from "@/lib/auth/password-reset-utils";
+import type { Translator } from "@/lib/i18n/utils";
 
 const TOKEN_MINUTES = 30;
 
@@ -16,7 +18,7 @@ const TOKEN_MINUTES = 30;
  * the account exists or has one: the caller always answers the same way, so
  * the form cannot be used to probe for addresses.
  */
-export async function requestPasswordReset(env: CloudflareEnv, email: string, origin: string): Promise<void> {
+export async function requestPasswordReset(env: CloudflareEnv, email: string, origin: string, t: Translator): Promise<void> {
 	const db = getDb(env);
 	const [user] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).limit(1);
 	if (!user || user.disabled || !user.resetEmail) return;
@@ -33,16 +35,7 @@ export async function requestPasswordReset(env: CloudflareEnv, email: string, or
 	const { appName } = await getBranding(env);
 	const sent = await sendSystemEmail(env, {
 		to: user.resetEmail,
-		subject: `Reset your ${appName} password`,
-		text: [
-			`Someone asked to reset the password for ${user.email} on ${appName}.`,
-			"",
-			`Open this link within ${TOKEN_MINUTES} minutes to choose a new password:`,
-			link,
-			"",
-			"If that was not you, you can ignore this message; the password stays as it is.",
-		].join("\n"),
-		html: `<p>Someone asked to reset the password for <b>${escapeHtml(user.email)}</b> on ${escapeHtml(appName)}.</p><p>Open this link within ${TOKEN_MINUTES} minutes to choose a new password:</p><p><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p><p>If that was not you, you can ignore this message; the password stays as it is.</p>`,
+		...buildPasswordResetEmail(t, { email: user.email, appName, link, minutes: TOKEN_MINUTES }),
 	});
 	if (!sent) console.warn("Password reset requested but no domain can send mail; link not delivered");
 }
@@ -75,7 +68,7 @@ export async function completePasswordReset(
 		actorUserId: row.userId,
 		targetUserId: row.userId,
 		action: "auth.password_reset",
-		metadata: { ipAddress: request.headers.get("cf-connecting-ip") ?? "unknown" },
+		metadata: { ipAddress: getClientIp(request) ?? "unknown" },
 	});
 	return { ok: true };
 }

@@ -1,6 +1,6 @@
-import { newId } from "@/lib/ids";
-import { getAccountForwardingDestination, MAILFLARE_FORWARDED_HEADER } from "@/lib/email/account-forwarding";
+import { forwardedMarker, getAccountForwardingDestination, isForwardedMarkerValid, MAILFLARE_FORWARDED_HEADER } from "@/lib/email/account-forwarding";
 import { resolveIncomingMail } from "@/lib/email/incoming";
+import { inboundStorageKey } from "@/lib/email/inbound-id";
 import type { InboundQueueMessage } from "@/lib/email/inbound";
 import type { IntakeActions, IntakeInput, IntakeResult } from "@/lib/email/intake-types";
 
@@ -11,7 +11,12 @@ import type { IntakeActions, IntakeInput, IntakeResult } from "@/lib/email/intak
  * callbacks, then store the raw MIME and enqueue it for parsing.
  */
 export async function intakeIncomingMail(env: CloudflareEnv, input: IntakeInput, actions: IntakeActions): Promise<IntakeResult> {
-	const decision = await resolveIncomingMail(env, input.from, input.to);
+	const alreadyForwarded = await isForwardedMarkerValid(env, input.headers[MAILFLARE_FORWARDED_HEADER.toLowerCase()] ?? input.headers[MAILFLARE_FORWARDED_HEADER]);
+	const marker = { [MAILFLARE_FORWARDED_HEADER]: await forwardedMarker(env) };
+	const decision = await resolveIncomingMail(env, input.from, input.to, {
+		subject: input.headers.subject,
+		alreadyForwarded,
+	});
 
 	if (decision?.action === "reject") {
 		const reason = decision.rejectReason ?? "Message rejected by routing rule";
@@ -21,23 +26,24 @@ export async function intakeIncomingMail(env: CloudflareEnv, input: IntakeInput,
 
 	let forwardedTo: string | null = null;
 	if (decision?.action === "forward" && decision.forwardTo) {
-		const forwarded = await actions.forward?.(decision.forwardTo, { [MAILFLARE_FORWARDED_HEADER]: "1" });
+		const forwarded = await actions.forward?.(decision.forwardTo, marker);
 		if (forwarded) forwardedTo = decision.forwardTo;
 		if (forwarded && !decision.keepCopy) return { action: "forward", forwardedTo };
 	}
 
-	const alreadyForwarded = input.headers[MAILFLARE_FORWARDED_HEADER.toLowerCase()] === "1" || input.headers[MAILFLARE_FORWARDED_HEADER] === "1";
 	if (!alreadyForwarded) {
 		const destination = await getAccountForwardingDestination(env, input.to);
-		if (destination) await actions.forward?.(destination, { [MAILFLARE_FORWARDED_HEADER]: "1" });
+		if (destination) await actions.forward?.(destination, marker);
 	}
 
-	const rawR2Key = `inbound/${Date.now()}-${newId()}.eml`;
+	// A relay retry replays the same bytes, so key the object on a content hash
+	// (scoped by mailbox): the consumer dedupes by `(mailboxId, rawR2Key)`.
+	const rawR2Key = await inboundStorageKey(input.raw, decision?.mailbox?.mailboxId);
 	await env.BUCKET.put(rawR2Key, input.raw, {
 		httpMetadata: { contentType: "message/rfc822" },
 		customMetadata: { from: input.from, to: input.to },
 	});
-	const payload: InboundQueueMessage = { from: input.from, to: input.to, rawR2Key, headers: input.headers };
+	const payload: InboundQueueMessage = { from: input.from, to: input.to, rawR2Key, headers: input.headers, verdicts: input.verdicts, senderIp: input.senderIp };
 	await env.INBOUND_QUEUE.send(payload);
 	return { action: "store", rawR2Key, forwardedTo };
 }

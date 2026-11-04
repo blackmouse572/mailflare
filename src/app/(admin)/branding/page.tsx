@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, ImagePlus, LockKeyhole, Palette } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, ExternalLink, ImagePlus, LockKeyhole, Palette } from "@/components/icons";
 import { useLanguage } from "@/components/language-provider";
 import { useBranding } from "@/components/branding-provider";
 import { Button } from "@/components/ui/button";
@@ -37,8 +38,9 @@ export default function BrandingPage() {
 						<CardDescription>{t("branding.originalNote")}</CardDescription>
 					</CardHeader>
 					<CardContent className="flex flex-col gap-3 pt-6 sm:flex-row">
-						<Button asChild><a href="https://app.paymug.co/buy/mailflare-pro" target="_blank" rel="noopener noreferrer">{t("branding.buyPro")} <ExternalLink className="h-4 w-4" /></a></Button>
-						<Button asChild variant="outline"><a href="https://app.paymug.co/buy/mailflare-team" target="_blank" rel="noopener noreferrer">{t("branding.buyTeam")} <ExternalLink className="h-4 w-4" /></a></Button>
+						<Button asChild>
+							<Link href="/licenses">{t("license.view")}</Link>
+						</Button>
 					</CardContent>
 				</Card>
 			</div>
@@ -89,10 +91,10 @@ export default function BrandingPage() {
 							<Input ref={inputRef} type="file" accept={BRANDING_ICON_ACCEPT} className="hidden" onChange={(event) => pickIcon(event.target.files?.[0] ?? null)} />
 							<button type="button" onClick={() => inputRef.current?.click()} className="flex items-center gap-4 rounded-2xl border border-dashed border-neutral-300 p-4 text-left hover:bg-neutral-50">
 								<img src={preview ?? branding.iconUrl} alt={t("branding.iconPreview")} className="h-16 w-16 rounded-2xl object-cover" />
-								<span className="text-sm text-neutral-600"><ImagePlus className="mb-1 h-5 w-5" />{t("branding.chooseImage")}<br /><span className="text-xs text-neutral-400">{t("branding.maxSize")}</span></span>
+								<span className="text-sm text-neutral-600"><ImagePlus className="mb-1 h-5 w-5" />{t("branding.chooseImage")}<br /><span className="text-xs text-neutral-500">{t("branding.maxSize")}</span></span>
 							</button>
 						</div>
-						{status && <p className="text-sm text-neutral-600">{status}</p>}
+						{status && <p role="status" className="text-sm text-neutral-600">{status}</p>}
 						<Button type="submit" disabled={saving || !appName.trim()}>{saving ? t("common.saving") : t("branding.save")}</Button>
 					</form>
 				</CardContent>

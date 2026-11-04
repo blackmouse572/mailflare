@@ -24,6 +24,8 @@ export function listAccountsForAdmin(db: Db) {
 			canManageDomains: users.canManageDomains,
 			canManageUsers: users.canManageUsers,
 			createdAt: users.createdAt,
+			lastSignInAt: users.lastSignInAt,
+			deletedAt: users.deletedAt,
 		})
 		.from(users)
 		.orderBy(desc(users.createdAt));
@@ -60,6 +62,8 @@ export function accountListItemFromUser(user: {
 	canManageDomains?: boolean;
 	canManageUsers?: boolean;
 	createdAt: Date;
+	lastSignInAt?: Date | null;
+	deletedAt?: Date | null;
 }) {
 	return {
 		id: user.id,
@@ -74,7 +78,19 @@ export function accountListItemFromUser(user: {
 		canManageDomains: !!user.canManageDomains,
 		canManageUsers: !!user.canManageUsers,
 		createdAt: user.createdAt,
+		lastSignInAt: user.lastSignInAt ?? null,
+		deletedAt: user.deletedAt ?? null,
 	};
+}
+
+/** Admin session on an installation licensed for Team-only mailbox sharing. */
+export async function requireTeamSharingAdmin(request: Request) {
+	const access = await requireTeamAdmin(request);
+	if (access.error) return access;
+	if (!(await getLicenseEntitlements(access.env)).canShareMailboxes) {
+		return { ...access, error: NextResponse.json({ error: "A Team license is required to share inboxes" }, { status: 403 }) };
+	}
+	return access;
 }
 
 export async function requireTeamAdmin(request: Request) {
@@ -86,7 +102,7 @@ export async function requireTeamAdmin(request: Request) {
 			return {
 				env,
 				user,
-				error: NextResponse.json({ error: "A Team license is required to manage accounts" }, { status: 403 }),
+				error: NextResponse.json({ error: "A Pro or Team license is required to manage accounts" }, { status: 403 }),
 			};
 		}
 		return { env, user, error: null };

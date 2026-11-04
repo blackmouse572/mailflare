@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/cookies";
 import { getEnv } from "@/lib/cloudflare";
 import { RequestBodyTooLargeError } from "@/lib/http/errors";
 import { getImportMessageUserId } from "@/lib/import/destination";
+import { createFileImportJob } from "@/lib/import/jobs";
 import { importMessagesToMailbox } from "@/lib/import/service";
 import { getMailboxAccessLevel } from "@/lib/mailboxes/access";
 import { parseImportForm } from "./utils";
@@ -41,11 +42,27 @@ export async function POST(request: Request) {
 		}
 	}
 
-	const result = await importMessagesToMailbox(env, {
-		userId: getImportMessageUserId(input.destination, user.id, access.mailbox.userId),
+	if (!input.background) {
+		const result = await importMessagesToMailbox(env, {
+			userId: getImportMessageUserId(input.destination, user.id, access.mailbox.userId),
+			mailboxId: access.mailbox.id,
+			destination: input.destination,
+			messages: input.messages,
+		});
+		return NextResponse.json(result);
+	}
+
+	const job = await createFileImportJob(env, {
+		userId: user.id,
 		mailboxId: access.mailbox.id,
-		destination: input.destination,
+		label: summarizeFilenames(input.filenames),
+		destination: input.destinationValue,
 		messages: input.messages,
 	});
-	return NextResponse.json(result);
+	return NextResponse.json({ job }, { status: 202 });
+}
+
+function summarizeFilenames(names: string[]): string {
+	const label = names.slice(0, 2).join(", ");
+	return (names.length > 2 ? `${label} +${names.length - 2}` : label).slice(0, 120) || "Uploaded files";
 }

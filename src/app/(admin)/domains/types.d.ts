@@ -11,6 +11,8 @@ export type Domain = {
 	sendingProvider: SendingProvider;
 	receivingProvider: ReceivingProvider;
 	zoneId: string;
+	/** Added with DNS skipped: the Cloudflare zone is attached on first setup. */
+	dnsSkipped?: boolean;
 };
 
 export type DomainPreflight = {

@@ -50,6 +50,11 @@
 			},
 		},
 		{
+			"name": "DEVICE_LOGIN_RATE_LIMIT",
+			"namespace_id": "1003",
+			"simple": { "limit": 10, "period": 60 },
+		},
+		{
 			"name": "AGENT_RATE_LIMIT",
 			"namespace_id": "1002",
 			"simple": { "limit": 120, "period": 60 },
@@ -57,6 +62,7 @@
 	],
 	"observability": {
 		"enabled": true,
+		"traces": { "enabled": true },
 	},
 	"upload_source_maps": true,
 	"send_email": [
@@ -70,13 +76,13 @@
 		{
 			"binding": "DB",
 			"database_name": "mailflare",
-			"migrations_dir": "drizzle/migrations","database_id": "ee2ad1a1-48d9-4f40-ba5a-369d78323f02",
+			"migrations_dir": "drizzle/migrations", "database_id": "ee2ad1a1-48d9-4f40-ba5a-369d78323f02",
 		},
 	],
 	"r2_buckets": [
 		{
 			"binding": "BUCKET",
-			"bucket_name": "mailflare-raw","preview_bucket_name": "mailflare-raw",
+			"bucket_name": "mailflare-raw", "preview_bucket_name": "mailflare-raw",
 		},
 	],
 	"queues": {
@@ -103,6 +109,8 @@
 			{
 				"queue": "mailflare-outbound",
 				"max_batch_size": 5,
+				// Sends wait out the undo window already; do not also wait for a batch to fill.
+				"max_batch_timeout": 1,
 				"max_retries": 3,
 			},
 			{

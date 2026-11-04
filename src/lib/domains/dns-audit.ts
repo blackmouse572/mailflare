@@ -55,6 +55,7 @@ async function check(
 export async function auditDomainDns(
 	hostname: string,
 	view: AuditInput,
+	sendingProvider?: string,
 ): Promise<DomainDnsAudit> {
 	const expected = [...view.routing.records, ...view.routing.missing, ...view.sending];
 	// Cloudflare reports the selector it signs with, which is more reliable than
@@ -63,7 +64,8 @@ export async function auditDomainDns(
 		(view.dkimSelector
 			? `${view.dkimSelector}._domainkey.${hostname}`
 			: undefined) ??
-		expected.find((record) => isTxt(record) && /_domainkey/i.test(record.name ?? ""))?.name;
+		expected.find((record) => isTxt(record) && /_domainkey/i.test(record.name ?? ""))?.name ??
+		(sendingProvider === "resend" ? `resend._domainkey.${hostname}` : undefined);
 
 	const [mx, spf, dmarc] = await Promise.all([
 		check("mx", "MX", hostname, "MX", (value) => !/^0\s*\.?$/.test(value.trim())),
